@@ -17,6 +17,7 @@ import {
   User,
   Notification,
   MyParticipation,
+  Invitation,
   Schedule,
 } from "../lib/api";
 import {ScheduleEditor} from "./forms";
@@ -910,75 +911,51 @@ export function Dashboard({
       setParticipation(await api<MyParticipation>("/api/me/participation", token));
     } catch (err) {setError(err instanceof Error ? err.message : "Could not update invitation.");}
   }
-  if (mode === "my-teams")
-    return (
-      <>
-        <span className="section-kicker">YOUR PEOPLE</span>
-        <h1>My teams</h1>
-        <p className="page-intro">
-          Your teams, looking pools, requests and invitations by activity.
-        </p>
-        {error && <div className="notice error">{error}</div>}
-        <div className="team-list">
-          {participation?.teams.map((team) => (
-            <button
-              className="team-card clickable"
-              key={team.id}
-              onClick={() => onTeam(team.id)}
-            >
-              <div>
-                <h3>{team.name}</h3>
-                <p>{team.activity_title} · {categories[team.category]} · {scheduleLabel(team.schedule)}</p>
-                <p>
-                  {team.member_count} of {team.capacity} members
-                </p>
-              </div>
-              <span>Open team →</span>
-            </button>
-          ))}
-        </div>
-        {!participation?.teams.length && (
-          <div className="empty small-empty">
-            <span>✳</span>
-            <h3>No teams yet</h3>
-            <p>Find an opportunity in Explore and join or create a team.</p>
-          </div>
-        )}
-        <section className="panel">
-          <h2>Your requests</h2>
-          {participation?.requests.length ? (
-            participation.requests.map((request) => (
-              <div className="request-row" key={request.id}>
-                <button
-                  className="inline-link"
-                  onClick={() => request.team_id && onTeam(request.team_id)}
-                >
-                  {request.activity_title} · {request.team_name} · {categories[request.category || ""]} · {scheduleLabel(request.schedule)}
-                </button>
-                <span className="count-pill">{request.status}</span>
-              </div>
-            ))
-          ) : (
-            <p>No requests yet.</p>
-          )}
-        </section>
-        <section className="panel"><h2>Looking for a team</h2>
-          {participation?.looking.length ? participation.looking.map((item) => <div className="request-row" key={item.opportunity_id}>
-            <button className="inline-link" onClick={() => onOpportunity(item.opportunity_id)}>{item.activity_title} · {categories[item.category]} · {scheduleLabel(item.schedule)}</button>
-          </div>) : <p>You are not in a looking pool.</p>}
-        </section>
-        <section className="panel"><h2>Invitations</h2>
-          {participation?.invitations.length ? participation.invitations.map((item) => <div className="request-row" key={item.id}>
-            <button className="inline-link" onClick={() => onTeam(item.team_id)}>{item.activity_title} · {item.team_name} · {categories[item.category || ""]} · {scheduleLabel(item.schedule)}</button>
-            <span className="count-pill">{item.status}</span>
-            {item.status === "pending" && <div className="row-actions">
-              <button className="button small" onClick={() => void decideInvite(item.id, "accept")}>Accept</button>
-              <button className="button secondary small" onClick={() => void decideInvite(item.id, "decline")}>Decline</button>
-            </div>}
-          </div>) : <p>No invitations yet.</p>}
-        </section>
-      </>
-    );
+  if (mode === "my-teams") {
+    type Group = {title: string; category: string; schedule: Schedule; teams: Team[]; requests: JoinRequest[]; looking: boolean; invitations: Invitation[]};
+    const groups = new Map<number, Group>();
+    function activity(id: number, title: string, category: string, schedule: Schedule) {
+      if (!groups.has(id)) groups.set(id, {title, category, schedule, teams: [], requests: [], looking: false, invitations: []});
+      return groups.get(id)!;
+    }
+    participation?.teams.forEach((team) => activity(team.opportunity_id, team.activity_title, team.category, team.schedule).teams.push(team));
+    participation?.requests.forEach((request) => {
+      if (request.opportunity_id) activity(request.opportunity_id, request.activity_title || "Activity", request.category || "", request.schedule || {kind: "undecided"}).requests.push(request);
+    });
+    participation?.looking.forEach((item) => {activity(item.opportunity_id, item.activity_title, item.category, item.schedule).looking = true;});
+    participation?.invitations.forEach((invite) => {
+      if (invite.opportunity_id) activity(invite.opportunity_id, invite.activity_title || "Activity", invite.category || "", invite.schedule || {kind: "undecided"}).invitations.push(invite);
+    });
+    return <>
+      <span className="section-kicker">YOUR PEOPLE</span><h1>My teams</h1>
+      <p className="page-intro">Your membership, requests, looking pools and invitations by activity.</p>
+      {error && <div className="notice error">{error}</div>}
+      {!participation && !error && <p>Loading your activities...</p>}
+      {participation && !groups.size && <div className="empty small-empty"><h3>No activities yet</h3><p>Find an activity in Explore and join a team or its looking pool.</p></div>}
+      {Array.from(groups.entries()).map(([id, group]) => <section className="panel" key={id}>
+        <span className="section-kicker">{categories[group.category] || group.category}</span>
+        <h2><button className="inline-link" onClick={() => onOpportunity(id)}>{group.title}</button></h2>
+        <p>{scheduleLabel(group.schedule)}</p>
+        {group.teams.map((team) => <div className="request-row" key={team.id}>
+          <button className="inline-link" onClick={() => onTeam(team.id)}>Member of {team.name} ?</button>
+          <span>{team.member_count}/{team.capacity} members ? {scheduleLabel(team.schedule)}</span>
+        </div>)}
+        {group.looking && <div className="request-row"><button className="inline-link" onClick={() => onOpportunity(id)}>Looking for a team ? Update dates ?</button></div>}
+        {group.requests.map((request) => <div className="request-row" key={request.id}>
+          <button className="inline-link" onClick={() => request.team_id && onTeam(request.team_id)}>Request to {request.team_name} ?</button>
+          <span className="count-pill">{request.status}</span>
+        </div>)}
+        {group.invitations.map((invite) => <div className="request-row" key={invite.id}>
+          <button className="inline-link" onClick={() => onTeam(invite.team_id)}>Invitation from {invite.team_name} ?</button>
+          <span className="count-pill">{invite.status}</span>
+          {invite.status === "pending" && <div className="row-actions">
+            <button className="button small" onClick={() => void decideInvite(invite.id, "accept")}>Accept</button>
+            <button className="button secondary small" onClick={() => void decideInvite(invite.id, "decline")}>Decline</button>
+          </div>}
+        </div>)}
+      </section>)}
+    </>;
+  }
   return (
     <>
       <span className="section-kicker">A LOOK AT THE COMMUNITY</span>
