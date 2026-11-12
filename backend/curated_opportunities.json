@@ -1,0 +1,37 @@
+[
+  {
+    "title": "TrueFoundry Forge-a-thon",
+    "description": "Build a VS Code coding agent with TrueForge. Open to participants aged 18 and over; teams of up to 5. Registration closes 15 Nov 2026; remote round deadline 20 Nov; Techfest IIT Bombay finals 16–18 Dec.",
+    "organizer": "Techfest IIT Bombay and TrueFoundry",
+    "official_url": "https://techfest.org/competitions/forge-a-thon",
+    "category": "hackathon"
+  },
+  {
+    "title": "AyushTech Innovate: National Open Ayurveda AI Challenge",
+    "description": "Build source-grounded AI tools for Ayurveda. Teams of 2–4 must include an eligible Ayurveda student; see the official rules. Registration closes 15 Nov 2026; final presentations 15–18 Dec at Techfest IIT Bombay.",
+    "organizer": "Techfest IIT Bombay",
+    "official_url": "https://techfest.org/competitions/ayushtech",
+    "category": "hackathon"
+  },
+  {
+    "title": "National Aeromodelling Challenge",
+    "description": "Student teams design and fly a payload-carrying RC aircraft. Teams of 2–4; registration and abstract submission close 25 Nov 2026. Qualifiers are 15–16 Dec and the main round is 17 Dec at IIT Bombay.",
+    "organizer": "Techfest IIT Bombay",
+    "official_url": "https://techfest.org/competitions/Aeromodelling-2026",
+    "category": "hackathon"
+  },
+  {
+    "title": "Agentic AI in BFSI Hackathon 2026",
+    "description": "Build AI solutions for banking workflows in a Perfios and Techfest IIT Bombay hackathon. Student teams of up to 4; registration closes 25 Nov 2026, with finals 15–18 Dec. Check the listing for current rules and eligibility.",
+    "organizer": "Perfios and Techfest IIT Bombay",
+    "official_url": "https://unstop.com/hackathons/agentic-ai-in-bfsi-hackathon-iit-bombay-1800857/amp",
+    "category": "hackathon"
+  },
+  {
+    "title": "Global Sustainability Challenge 2026–27",
+    "description": "University student teams develop sustainability solutions in energy or climate resilience. Teams of 1–6; at least one member must meet the organizer's age rule. Registration, team formation and Phase 1 submissions close 22 Nov 2026.",
+    "organizer": "Global Sustainability Challenge, with IIT Bombay as South Asia partner",
+    "official_url": "https://gesh.iitb.ac.in/event-details/global-sustainability-challenge-2026-2027",
+    "category": "hackathon"
+  }
+]

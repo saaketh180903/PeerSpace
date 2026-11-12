@@ -1,0 +1,13 @@
+.env
+.env.*
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.db-*
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+frontend/next-env.d.ts
