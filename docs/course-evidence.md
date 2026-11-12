@@ -6,9 +6,9 @@ This matrix points to work in the local project. The official course rubric has 
 | --- | --- | --- |
 | HTML, CSS, and JavaScript or TypeScript | `frontend/src/app` and `frontend/src/lib/api.ts` | Review the interface and explain its interactions. |
 | Python | `backend/main.py`, `backend/matching.py`, and `backend/manage.py` | Demonstrate the API, matching, and source import. |
-| SQL and databases | `backend/models.py`, `backend/database.py`, and SQLite transactions in `backend/main.py` | Explain constraints and the concurrent approval test. |
-| Git | Local repository history | Add genuine team commits and reviews as work progresses; no commits have been manufactured. |
-| Testing and debugging | `backend/tests/test_api.py`, API responses, and application logs | Run tests and document a real debugging example. |
+| SQL and databases | `backend/models.py`, `backend/database.py`, `backend/migrate.py`, and SQLite transactions in `backend/main.py` | Demonstrate the copy-based migration, foreign-key check and approvals competing with invitations. |
+| Git | Local repository history and the PeerSpace GitHub repository | Explain real commits, review and deployment linkage. |
+| Testing and debugging | `backend/tests/test_api.py`, `backend/tests/test_migration.py`, API responses, and application logs | Run tests and document a real debugging example. |
 | Data analysis and plotting | `backend/evaluation.py` and `analysis/matching_evaluation.ipynb` | Results use synthetic data; add appropriate plots or independent evaluation if the rubric requires them. |
 | Unix/Linux and shell scripting | Not yet demonstrated by a dedicated script. | Confirm whether needed and add meaningful evidence. |
 | Makefile | Not yet included. | Confirm whether the rubric requires it. |

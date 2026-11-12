@@ -7,6 +7,8 @@ import argparse
 from datetime import date
 from html.parser import HTMLParser
 import json
+import sqlite3
+from pathlib import Path
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -15,6 +17,7 @@ from sqlalchemy import select
 
 from .database import Base, SessionLocal, engine
 from .main import normalize_url
+from .migrate import migrate
 from .models import Opportunity, User
 
 
@@ -56,6 +59,10 @@ def import_records(db, records, source, creator):
                 official_url=url,
                 organizer=record.get("organizer"),
                 event_date=event_date,
+                schedule=(
+                    {"kind": "single", "start_date": event_date, "required_dates": [event_date]}
+                    if event_date else {"kind": "undecided"}
+                ),
                 created_by=creator.id,
             )
         )
@@ -102,6 +109,8 @@ def rss_records(url, category):
 def main():
     parser = argparse.ArgumentParser(description="PeerSpace local administration")
     commands = parser.add_subparsers(dest="command", required=True)
+    backup = commands.add_parser("backup", help="Create a consistent SQLite backup")
+    backup.add_argument("path", help="Destination .db file")
     make_admin = commands.add_parser(
         "make-admin", help="Grant admin to an existing account"
     )
@@ -121,6 +130,18 @@ def main():
         "category", choices=["hackathon", "course_project", "study_group", "trek_sport"]
     )
     args = parser.parse_args()
+    if args.command == "backup":
+        source = engine.url.database
+        if engine.dialect.name != "sqlite" or not source:
+            parser.error("Backup command supports file-based SQLite only")
+        destination = Path(args.path)
+        if destination.exists():
+            parser.error("Backup destination already exists")
+        with sqlite3.connect(source) as original, sqlite3.connect(destination) as copy:
+            original.backup(copy)
+        print(f"Backup saved to {destination}")
+        return
+    migrate(engine)
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == args.email.strip().lower()))

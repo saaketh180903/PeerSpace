@@ -10,10 +10,16 @@ import {
   Message,
   Opportunity,
   Participation,
+  DateAnswers,
+  scheduleLabel,
   Team,
   TeamOptions,
   User,
+  Notification,
+  MyParticipation,
+  Schedule,
 } from "../lib/api";
+import {ScheduleEditor} from "./forms";
 
 export function OpportunityDetails({
   item,
@@ -53,6 +59,10 @@ export function OpportunityDetails({
   );
   const [options, setOptions] = useState<TeamOptions | null>(null);
   const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<{kind: "interest" | "request"; team?: Team} | null>(null);
+  const [answers, setAnswers] = useState<DateAnswers>({dates: [], weekdays: []});
+  const [motivation, setMotivation] = useState("");
+  const [questionAnswer, setQuestionAnswer] = useState("");
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +100,7 @@ export function OpportunityDetails({
       setError("");
       await api(`/api/opportunities/${item.id}/interest`, token, {
         method: "POST",
+        body: JSON.stringify({date_answers: answers}),
       });
       setLookingCount(
         (await api<Opportunity>(`/api/opportunities/${item.id}`)).looking_count,
@@ -100,6 +111,7 @@ export function OpportunityDetails({
       clearPending();
       dismissNextStep();
       await load();
+      setAction(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save interest.");
     } finally {
@@ -128,12 +140,13 @@ export function OpportunityDetails({
     try {
       setBusy(true);
       setError("");
-      await api(`/api/teams/${teamId}/requests`, token, { method: "POST" });
+      await api(`/api/teams/${teamId}/requests`, token, { method: "POST", body: JSON.stringify({date_answers: answers, motivation, question_answer: questionAnswer}) });
       setMessage(
         "Request sent. Check My teams for updates; there are no notifications yet.",
       );
       clearPending();
       await load();
+      setAction(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send request.");
       await load();
@@ -169,9 +182,10 @@ export function OpportunityDetails({
           <h1>{item.title}</h1>
           <p>{item.description}</p>
           <div className="detail-meta">
-            <span>◷ {item.event_date || "See date details"}</span>
+            <span>{scheduleLabel(item.schedule)}</span>
             <span>♧ {lookingCount} looking</span>
             {item.organizer && <span>By {item.organizer}</span>}
+            {item.eligibility && <span>Organizer eligibility: {item.eligibility} (not verified by PeerSpace)</span>}
             {item.official_url && (
               <a href={item.official_url} target="_blank" rel="noreferrer">
                 Official link ↗
@@ -181,9 +195,10 @@ export function OpportunityDetails({
               Report
             </button>
             {user && participation?.looking && (
-              <button className="inline-link" onClick={() => void withdraw()}>
-                Leave looking pool
-              </button>
+              <>
+                <button className="inline-link" onClick={() => {setAnswers(participation.date_answers || {dates: [], weekdays: []}); setAction({kind: "interest"});}}>Edit your dates</button>
+                <button className="inline-link" onClick={() => void withdraw()}>Leave looking pool</button>
+              </>
             )}
           </div>
         </div>
@@ -202,7 +217,7 @@ export function OpportunityDetails({
                 disabled={
                   busy || !!participation?.looking || (!!user && !participation)
                 }
-                onClick={() => void interest()}
+                onClick={() => user ? setAction({kind: "interest"}) : onLogin("interest")}
               >
                 {participation?.looking
                   ? "You’re in the looking pool"
@@ -221,6 +236,32 @@ export function OpportunityDetails({
       </section>
       {message && <div className="notice success">{message}</div>}
       {error && <div className="notice error">{error}</div>}
+      {user && item.fit && <div className="notice">
+        <strong>{item.fit.band} activity fit</strong> · Guidance, not a guarantee. {item.fit.explanation.join(" · ")}
+        {item.fit.band !== "High" && <> <button className="inline-link" onClick={onProfile}>Improve your match → Edit profile</button></>}
+      </div>}
+      {action && <section className="panel">
+        <h2>{action.kind === "interest" ? "Join the looking pool" : `Request to join ${action.team?.name}`}</h2>
+        <p>{scheduleLabel(action.team?.schedule || item.schedule)}</p>
+        {((action.team?.schedule || item.schedule).required_dates || []).length > 0 && <p>Required dates: {(action.team?.schedule || item.schedule).required_dates?.join(", ")}</p>}
+        {(action.team?.schedule || item.schedule).kind !== "undecided" && <>
+          <label>Dates you can attend <small>YYYY-MM-DD, comma separated</small>
+            <input value={answers.dates.join(", ")} onChange={(event) => setAnswers({...answers, dates: event.target.value.split(",").map((value) => value.trim()).filter(Boolean)})} />
+          </label>
+          {(action.team?.schedule || item.schedule).kind === "recurring" && <div>
+            <p>Recurring days you can attend</p>
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => <label key={day} className="check">
+              <input type="checkbox" checked={answers.weekdays.includes(index)} onChange={(event) => setAnswers({...answers, weekdays: event.target.checked ? [...answers.weekdays, index] : answers.weekdays.filter((value) => value !== index)})} />{day}
+            </label>)}
+          </div>}
+        </>}
+        {action.kind === "request" && <>
+          <label>Why would you like to join?<textarea value={motivation} onChange={(event) => setMotivation(event.target.value)} /></label>
+          {action.team?.question && <label>{action.team.question}<textarea required value={questionAnswer} onChange={(event) => setQuestionAnswer(event.target.value)} /></label>}
+        </>}
+        <div className="row-actions"><button className="button" disabled={busy} onClick={() => action.kind === "interest" ? void interest() : void request(action.team!.id)}>Confirm {action.kind === "interest" ? "looking" : "request"}</button>
+          <button className="button secondary" onClick={() => setAction(null)}>Cancel</button></div>
+      </section>}
       {item.official_url && (
         <p className="activity-note">
           PeerSpace helps you find people. Register for the event separately
@@ -262,7 +303,7 @@ export function OpportunityDetails({
             <p>Checking whether the team is still available...</p>
           ) : pendingAction.action === "request" &&
             participation?.requests.some(
-              (request) => request.team_id === pendingAction.teamId,
+              (request) => request.team_id === pendingAction.teamId && request.status !== "closed",
             ) ? (
             <p>
               You have already requested this team. See your request status
@@ -290,8 +331,8 @@ export function OpportunityDetails({
                 }
                 onClick={() =>
                   pendingAction.action === "interest"
-                    ? void interest()
-                    : pendingAction.teamId && void request(pendingAction.teamId)
+                    ? (setAction({kind: "interest"}), clearPending())
+                    : pendingAction.teamId && (setAction({kind: "request", team: recommended.find((team) => team.id === pendingAction.teamId)}), clearPending())
                 }
               >
                 {pendingAction.action === "interest"
@@ -323,7 +364,7 @@ export function OpportunityDetails({
             <button
               className="button secondary"
               disabled={busy}
-              onClick={() => void interest()}
+              onClick={() => setAction({kind: "interest"})}
             >
               Join the looking pool
             </button>
@@ -344,23 +385,7 @@ export function OpportunityDetails({
           </p>
         </div>
       </div>
-      {user && options && options.hidden_count > 0 && !participation?.team && (
-        <div className="recommendation-note">
-          {options.hidden_count} open{" "}
-          {options.hidden_count === 1 ? "team is" : "teams are"} hidden because
-          your profile doesn’t meet a required{" "}
-          {options.hidden_reasons.includes("event_date") &&
-          options.hidden_reasons.includes("availability")
-            ? "date or availability"
-            : options.hidden_reasons.includes("event_date")
-              ? "event date"
-              : "availability"}
-          .{" "}
-          <button className="inline-link" onClick={onProfile}>
-            Update your profile →
-          </button>
-        </div>
-      )}
+      {user && <p className="recommendation-note">Team fit is guidance. Required dates are checked when you request to join.</p>}
       {loading && <p>Loading teams...</p>}
       <div className="team-list">
         {(user
@@ -380,16 +405,14 @@ export function OpportunityDetails({
                   </span>
                 </div>
                 <p>
-                  {Object.keys(team.skills).length
-                    ? `Looking for ${Object.entries(team.skills)
-                        .map(([skill, level]) => `${skill} (${level}/5)`)
-                        .join(", ")}`
+                  {team.skills.length
+                    ? `Looking for ${team.skills.join(", ")}`
                     : "Open to people who want to join."}
                 </p>
                 {team.explanation && (
                   <div className="match-explanation">
                     <strong>
-                      {Math.round((team.score || 0) * 100)}% match
+                      {team.band} team fit · Guidance, not a guarantee
                     </strong>{" "}
                     · {team.explanation.join(" · ")}
                   </div>
@@ -406,10 +429,10 @@ export function OpportunityDetails({
                 </button>
                 <button
                   className="button small"
-                  disabled={busy || !!previous}
-                  onClick={() => void request(team.id)}
+                  disabled={busy || (!!previous && previous.status !== "closed")}
+                  onClick={() => user ? (setAnswers(participation?.date_answers?.dates ? participation.date_answers : {dates: [], weekdays: []}), setAction({kind: "request", team})) : onLogin("request", team.id)}
                 >
-                  {previous ? `Request ${previous.status}` : "Request to join"}
+                  {previous && previous.status !== "closed" ? `Request ${previous.status}` : "Request to join"}
                 </button>
               </div>
             </article>
@@ -458,6 +481,7 @@ export function TeamDetails({
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [editingSchedule, setEditingSchedule] = useState(false);
   const load = useCallback(async () => {
     try {
       const value = await api<Team>(`/api/teams/${teamId}`, token);
@@ -493,6 +517,22 @@ export function TeamDetails({
       );
     }
   }
+  async function teamAction(path: string, body?: object) {
+    if (!window.confirm("Confirm this team change?")) return;
+    try {
+      await api(`/api/teams/${teamId}/${path}`, token, {method: "POST", ...(body ? {body: JSON.stringify(body)} : {})});
+      setNotice("Team updated.");
+      await load();
+    } catch (err) {setError(err instanceof Error ? err.message : "Could not update team.");}
+  }
+  async function invite(userId: number) {
+    if (!window.confirm("Send this student an invitation?")) return;
+    try {
+      await api(`/api/teams/${teamId}/invitations?candidate_id=${userId}`, token, {method: "POST"});
+      setNotice("Invitation sent.");
+      await load();
+    } catch (err) {setError(err instanceof Error ? err.message : "Could not invite student.");}
+  }
   async function send(event: FormEvent) {
     event.preventDefault();
     try {
@@ -524,8 +564,10 @@ export function TeamDetails({
     <>
       <section className="detail-header">
         <div>
-          <span className="section-kicker">TEAM SPACE</span>
+          <span className="section-kicker">{categories[team.category]} · {team.activity_title}</span>
           <h1>{team.name}</h1>
+          <p>{team.goal}</p>
+          <p>{scheduleLabel(team.schedule)}</p>
           <p>
             {team.member_count} of {team.capacity} members ·{" "}
             {team.member_count >= team.capacity
@@ -540,6 +582,22 @@ export function TeamDetails({
       </section>
       {error && <div className="notice error">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
+      {team.members && !team.closed && <div className="panel">
+        {team.owner_id === user.id ? <>
+          <h2>Manage team</h2>
+          <button className="button secondary small" onClick={() => setEditingSchedule(!editingSchedule)}>Update schedule</button>{" "}
+          <button className="button secondary small" onClick={() => {
+            const id = Number(window.prompt("Enter the ID of an accepted member to become owner"));
+            if (id) void teamAction("transfer", {user_id: id});
+          }}>Transfer ownership</button>{" "}
+          <button className="button secondary small" onClick={() => void teamAction("close")}>Close team</button>
+          {editingSchedule && <ScheduleChange teamId={teamId} token={token} initial={team.schedule} onSaved={() => {setEditingSchedule(false); void load();}} />}
+        </> : <>
+          <h2>Membership</h2>
+          <button className="button secondary small" onClick={() => void teamAction("leave", {return_to_pool: false})}>Leave team</button>{" "}
+          <button className="button secondary small" onClick={() => void teamAction("leave", {return_to_pool: true})}>Leave and return to looking pool</button>
+        </>}
+      </div>}
       <div className="detail-columns">
         <div>
           <section className="panel">
@@ -557,6 +615,10 @@ export function TeamDetails({
                       {person.id === team.owner_id ? " · Owner" : ""}
                     </strong>
                     <p>{person.contact || "No contact shared"}</p>
+                    {team.owner_id === user.id && person.id !== user.id && <div className="row-actions">
+                      <button className="inline-link" onClick={() => void teamAction(`remove/${person.id}`)}>Remove member</button>
+                      <button className="inline-link" onClick={() => void teamAction("transfer", {user_id: person.id})}>Make owner</button>
+                    </div>}
                   </div>
                 </div>
               ))
@@ -584,16 +646,22 @@ export function TeamDetails({
                     <div>
                       <strong>{request.user?.display_name}</strong>
                       <p>
-                        {Object.keys(request.user?.skills || {}).join(", ") ||
+                        {request.user?.skills.join(", ") ||
                           "No skills listed"}{" "}
                         · {request.status}
                       </p>
                       {request.match && (
                         <p>
-                          {Math.round(request.match.score * 100)}% match ·{" "}
+                          {request.match.score}% match estimate ·{" "}
                           {request.match.explanation.join(" · ")}
                         </p>
                       )}
+                      <p>{request.user?.bio}</p>
+                      <p>Interests: {request.user?.interests.join(", ")} · Courses: {request.user?.courses.join(", ")} · Experience: {request.user?.experience.join(", ")}</p>
+                      <p>Dates: {request.date_answers?.dates?.join(", ") || "Not confirmed"} · Weekdays: {request.date_answers?.weekdays?.join(", ") || "None"}</p>
+                      <p>Motivation: {request.motivation || "No answer"}</p>
+                      {team.question && <p>{team.question}: {request.question_answer || "No answer"}</p>}
+                      {request.match?.date_status === "not_confirmed" && <p>Applicant must confirm required dates before approval.</p>}
                     </div>
                     {request.status === "pending" && (
                       <div className="row-actions">
@@ -622,9 +690,12 @@ export function TeamDetails({
                   <div className="candidate" key={candidate.user.id}>
                     <strong>
                       {candidate.user.display_name} ·{" "}
-                      {Math.round(candidate.score * 100)}% match
+                      {candidate.score}% match
                     </strong>
                     <p>{candidate.explanation.join(" · ")}</p>
+                    <p>{candidate.user.bio} · Skills: {candidate.user.skills.join(", ")}</p>
+                    <p>Dates: {candidate.date_answers?.dates?.join(", ") || "Not confirmed"}</p>
+                    <button className="button small" onClick={() => void invite(candidate.user.id)}>Invite</button>{" "}
                     <button
                       className="inline-link"
                       onClick={() => void reportPerson(candidate.user.id)}
@@ -678,6 +749,48 @@ export function TeamDetails({
       </div>
     </>
   );
+}
+
+function ScheduleChange({teamId, token, initial, onSaved}: {teamId: number; token: string; initial: Schedule; onSaved: () => void}) {
+  const [schedule, setSchedule] = useState<Schedule>(initial);
+  const [error, setError] = useState("");
+  async function save() {
+    try {
+      await api(`/api/teams/${teamId}/schedule`, token, {method: "PUT", body: JSON.stringify(schedule)});
+      onSaved();
+    } catch (err) {setError(err instanceof Error ? err.message : "Could not save schedule.");}
+  }
+  return <div><ScheduleEditor value={schedule} onChange={setSchedule} />
+    {error && <div className="notice error">{error}</div>}
+    <button className="button small" onClick={() => void save()}>Save schedule</button>
+  </div>;
+}
+
+export function NotificationsView({token, onTeam, onOpportunity, onCount}: {
+  token: string; onTeam: (id: number) => void; onOpportunity: (id: number) => void; onCount: (count: number) => void;
+}) {
+  const [items, setItems] = useState<Notification[]>([]);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const result = await api<{unread_count: number; items: Notification[]}>("/api/me/notifications", token);
+      setItems(result.items); onCount(result.unread_count);
+    } catch (err) {setError(err instanceof Error ? err.message : "Could not load notifications.");}
+  }, [token, onCount]);
+  useEffect(() => {void load();}, [load]);
+  async function open(item: Notification) {
+    if (!item.read) await api(`/api/me/notifications/${item.id}/read`, token, {method: "POST"});
+    await load();
+    if (item.team_id) onTeam(item.team_id);
+    else if (item.opportunity_id) onOpportunity(item.opportunity_id);
+  }
+  return <><span className="section-kicker">UPDATES</span><h1>Notifications</h1>
+    {error && <div className="notice error">{error}</div>}
+    <section className="panel">{items.length ? items.map((item) => <button className="team-card clickable" key={item.id} onClick={() => void open(item)}>
+      <strong>{item.read ? "" : "● "}{item.text}</strong>
+      <span>{item.activity_title} · {categories[item.category || ""] || item.category} · {scheduleLabel(item.schedule)}</span>
+    </button>) : <p>No updates yet.</p>}</section>
+  </>;
 }
 
 type Report = {
@@ -766,21 +879,21 @@ export function Dashboard({
   mode,
   token,
   onTeam,
+  onOpportunity,
 }: {
   mode: "my-teams" | "insights";
   token: string;
   onTeam: (id: number) => void;
+  onOpportunity: (id: number) => void;
 }) {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [requests, setRequests] = useState<JoinRequest[]>([]);
+  const [participation, setParticipation] = useState<MyParticipation | null>(null);
   const [insights, setInsights] = useState<Insight | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     async function load() {
       try {
         if (mode === "my-teams") {
-          setTeams(await api<Team[]>("/api/me/teams", token));
-          setRequests(await api<JoinRequest[]>("/api/me/requests", token));
+          setParticipation(await api<MyParticipation>("/api/me/participation", token));
         } else setInsights(await api<Insight>("/api/insights", token));
       } catch (err) {
         setError(
@@ -790,17 +903,24 @@ export function Dashboard({
     }
     void load();
   }, [mode, token]);
+  async function decideInvite(id: number, decision: "accept" | "decline") {
+    if (!window.confirm(`${decision === "accept" ? "Join" : "Decline"} this team invitation?`)) return;
+    try {
+      await api(`/api/invitations/${id}/${decision}`, token, {method: "POST"});
+      setParticipation(await api<MyParticipation>("/api/me/participation", token));
+    } catch (err) {setError(err instanceof Error ? err.message : "Could not update invitation.");}
+  }
   if (mode === "my-teams")
     return (
       <>
         <span className="section-kicker">YOUR PEOPLE</span>
         <h1>My teams</h1>
         <p className="page-intro">
-          Your teams and join requests, all in one place.
+          Your teams, looking pools, requests and invitations by activity.
         </p>
         {error && <div className="notice error">{error}</div>}
         <div className="team-list">
-          {teams.map((team) => (
+          {participation?.teams.map((team) => (
             <button
               className="team-card clickable"
               key={team.id}
@@ -808,6 +928,7 @@ export function Dashboard({
             >
               <div>
                 <h3>{team.name}</h3>
+                <p>{team.activity_title} · {categories[team.category]} · {scheduleLabel(team.schedule)}</p>
                 <p>
                   {team.member_count} of {team.capacity} members
                 </p>
@@ -816,7 +937,7 @@ export function Dashboard({
             </button>
           ))}
         </div>
-        {!teams.length && (
+        {!participation?.teams.length && (
           <div className="empty small-empty">
             <span>✳</span>
             <h3>No teams yet</h3>
@@ -825,14 +946,14 @@ export function Dashboard({
         )}
         <section className="panel">
           <h2>Your requests</h2>
-          {requests.length ? (
-            requests.map((request) => (
+          {participation?.requests.length ? (
+            participation.requests.map((request) => (
               <div className="request-row" key={request.id}>
                 <button
                   className="inline-link"
                   onClick={() => request.team_id && onTeam(request.team_id)}
                 >
-                  {request.team_name}
+                  {request.activity_title} · {request.team_name} · {categories[request.category || ""]} · {scheduleLabel(request.schedule)}
                 </button>
                 <span className="count-pill">{request.status}</span>
               </div>
@@ -840,6 +961,21 @@ export function Dashboard({
           ) : (
             <p>No requests yet.</p>
           )}
+        </section>
+        <section className="panel"><h2>Looking for a team</h2>
+          {participation?.looking.length ? participation.looking.map((item) => <div className="request-row" key={item.opportunity_id}>
+            <button className="inline-link" onClick={() => onOpportunity(item.opportunity_id)}>{item.activity_title} · {categories[item.category]} · {scheduleLabel(item.schedule)}</button>
+          </div>) : <p>You are not in a looking pool.</p>}
+        </section>
+        <section className="panel"><h2>Invitations</h2>
+          {participation?.invitations.length ? participation.invitations.map((item) => <div className="request-row" key={item.id}>
+            <button className="inline-link" onClick={() => onTeam(item.team_id)}>{item.activity_title} · {item.team_name} · {categories[item.category || ""]} · {scheduleLabel(item.schedule)}</button>
+            <span className="count-pill">{item.status}</span>
+            {item.status === "pending" && <div className="row-actions">
+              <button className="button small" onClick={() => void decideInvite(item.id, "accept")}>Accept</button>
+              <button className="button secondary small" onClick={() => void decideInvite(item.id, "decline")}>Decline</button>
+            </div>}
+          </div>) : <p>No invitations yet.</p>}
         </section>
       </>
     );

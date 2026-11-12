@@ -28,8 +28,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    skills: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    skills: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    bio: Mapped[str] = mapped_column(Text, default="", nullable=False)
     interests: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    topics: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     availability: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     available_dates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     courses: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
@@ -61,6 +63,12 @@ class Opportunity(Base):
     organizer: Mapped[str | None] = mapped_column(String(200))
     official_url: Mapped[str | None] = mapped_column(String(2048), unique=True)
     event_date: Mapped[str | None] = mapped_column(String(10))
+    topics: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    skills: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    course: Mapped[str | None] = mapped_column(String(120))
+    experience: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    eligibility: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    schedule: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -85,6 +93,7 @@ class Interest(Base):
         ForeignKey("opportunities.id"), nullable=False
     )
     looking: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    date_answers: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now, nullable=False
     )
@@ -100,7 +109,11 @@ class Team(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     capacity: Mapped[int] = mapped_column(nullable=False)
-    skills: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    skills: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    goal: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    schedule: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    question: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     availability: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     availability_required: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
@@ -139,6 +152,9 @@ class JoinRequest(Base):
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    date_answers: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    motivation: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    question_answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now, nullable=False
     )
@@ -192,3 +208,34 @@ class ModerationAction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now, nullable=False
     )
+
+
+class Invitation(Base):
+    __tablename__ = "invitations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("team_id", "user_id"),)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"))
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    text: Mapped[str] = mapped_column(String(300), nullable=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class MembershipExit(Base):
+    __tablename__ = "membership_exits"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    opportunity_id: Mapped[int] = mapped_column(ForeignKey("opportunities.id"), nullable=False)
+    reason: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

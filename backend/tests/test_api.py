@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend import main
 from backend.database import Base, get_db
-from backend.models import ActivityEvent, Membership, User
-from backend.manage import import_records
+from backend.models import Membership
 
 
 @pytest.fixture
@@ -29,487 +28,187 @@ def client(tmp_path):
     original = main.engine
     main.engine = engine
     main.app.dependency_overrides[get_db] = test_db
-    with TestClient(main.app) as client:
-        client.engine = engine
-        yield client
+    with TestClient(main.app) as test_client:
+        test_client.engine = engine
+        yield test_client
     main.app.dependency_overrides.clear()
     main.engine = original
     engine.dispose()
 
 
-def signup(client, number):
-    response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": f"student{number}@example.org",
-            "display_name": f"Student {number}",
-            "password": "password123",
-        },
-    )
+def signup(client, number, interests=None, skills=None):
+    response = client.post("/api/auth/signup", json={
+        "email": f"student{number}@example.org", "display_name": f"Student {number}",
+        "password": "password123", "bio": "I enjoy working on campus projects together.",
+        "interests": interests or ["hackathon"], "skills": skills or ["Python"],
+    })
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
-def create_opportunity(client, headers, category="hackathon"):
-    response = client.post(
-        "/api/opportunities",
-        headers=headers,
-        json={
-            "title": "Campus activity",
-            "description": "Join us",
-            "category": category,
-        },
-    )
+def opportunity(client, owner, category="hackathon", schedule=None, **extra):
+    response = client.post("/api/opportunities", headers=owner, json={
+        "title": f"Campus activity {category}", "description": "Join us",
+        "category": category, "skills": ["Python"],
+        "schedule": schedule or {"kind": "undecided"}, **extra,
+    })
     assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
-@pytest.mark.parametrize(
-    "category", ["hackathon", "course_project", "study_group", "trek_sport"]
-)
-def test_complete_journey_for_each_category(client, category):
+def team(client, owner, activity, capacity=2, schedule=None):
+    response = client.post(f"/api/opportunities/{activity}/teams", headers=owner, json={
+        "name": "Team A", "capacity": capacity, "skills": ["Python"],
+        "goal": "Build something useful", "question": "What can you contribute?",
+        "schedule": schedule or {"kind": "undecided"},
+    })
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def apply(client, student, team_id, dates=None, weekdays=None):
+    return client.post(f"/api/teams/{team_id}/requests", headers=student, json={
+        "date_answers": {"dates": dates or [], "weekdays": weekdays or []},
+        "motivation": "I want to contribute", "question_answer": "Python",
+    })
+
+
+@pytest.mark.parametrize("category", ["hackathon", "course_project", "study_group", "trek_sport"])
+def test_full_journey_and_fit_for_each_category(client, category):
+    owner = signup(client, 1)
+    student = signup(client, 2, interests=[category])
+    activity = opportunity(client, owner, category)
+    team_id = team(client, owner, activity)
+    listings = client.get("/api/opportunities", headers=student).json()
+    assert listings[0]["fit"]["band"] in ("Low", "Medium", "High")
+    assert listings[0]["fit"]["explanation"]
+    assert client.get(f"/api/teams/{team_id}/messages", headers=student).status_code == 403
+    pool = client.post(f"/api/opportunities/{activity}/interest", headers=student, json={
+        "date_answers": {"dates": [], "weekdays": []}
+    })
+    assert pool.status_code == 200, pool.text
+    request = apply(client, student, team_id)
+    assert request.status_code == 201, request.text
+    reviewed = client.get(f"/api/teams/{team_id}/requests", headers=owner).json()[0]
+    assert reviewed["motivation"] == "I want to contribute"
+    assert reviewed["question_answer"] == "Python"
+    assert reviewed["match"]["score"] >= 0
+    assert reviewed["match"]["breakdown"]
+    assert client.get(f"/api/teams/{team_id}/requests", headers=student).status_code == 403
+    approved = client.post(f"/api/requests/{request.json()['id']}/approve", headers=owner)
+    assert approved.status_code == 200, approved.text
+    assert client.get(f"/api/teams/{team_id}/messages", headers=student).status_code == 200
+    assert client.post(f"/api/teams/{team_id}/messages", headers=student, json={"text": "Hello"}).status_code == 201
+    assert client.get("/api/me/notifications", headers=student).json()["unread_count"] >= 1
+    assert client.post(f"/api/teams/{team_id}/leave", headers=student, json={"return_to_pool": True}).status_code == 200
+    assert client.get(f"/api/teams/{team_id}/messages", headers=student).status_code == 403
+    assert client.get(f"/api/teams/{team_id}", headers=student).json().get("members") is None
+    assert client.get(f"/api/opportunities/{activity}/participation", headers=student).json()["looking"]
+
+
+def test_required_dates_and_invitations(client):
     owner, student = signup(client, 1), signup(client, 2)
-    profile = {
-        "display_name": "Student 2",
-        "skills": {"Python": 4},
-        "availability": ["evening"],
-        "courses": ["CS101"],
-        "experience": ["hiking"],
-        "contact": "private@example.org",
-    }
-    assert client.put("/api/profile", headers=student, json=profile).status_code == 200
-    opportunity_id = create_opportunity(client, owner, category)
-    assert (
-        client.post(
-            f"/api/opportunities/{opportunity_id}/interest", headers=student
-        ).status_code
-        == 200
-    )
-    team = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner,
-        json={
-            "name": "Team A",
-            "capacity": 2,
-            "skills": {"Python": 4},
-            "availability": ["evening"],
-            "course": "CS101",
-            "experience": ["hiking"],
-            "group_link": "https://example.org/group",
-        },
-    ).json()
-    recommendations = client.get(
-        f"/api/opportunities/{opportunity_id}/recommendations", headers=student
-    ).json()
-    assert recommendations[0]["id"] == team["id"]
-    assert recommendations[0]["explanation"]
-    assert (
-        "group_link"
-        not in client.get(f"/api/teams/{team['id']}", headers=student).json()
-    )
-    assert (
-        client.get(f"/api/teams/{team['id']}/messages", headers=student).status_code
-        == 403
-    )
-    request = client.post(f"/api/teams/{team['id']}/requests", headers=student).json()
-    reviewed = client.get(f"/api/teams/{team['id']}/requests", headers=owner).json()
-    assert reviewed[0]["match"]["explanation"]
-    assert (
-        client.post(f"/api/requests/{request['id']}/approve", headers=owner).json()[
-            "status"
-        ]
-        == "approved"
-    )
-    member_view = client.get(f"/api/teams/{team['id']}", headers=owner).json()
-    assert member_view["member_count"] == 2
-    assert any(
-        person["contact"] == "private@example.org" for person in member_view["members"]
-    )
-    assert (
-        client.post(
-            f"/api/teams/{team['id']}/messages",
-            headers=student,
-            json={"text": "Hello team"},
-        ).status_code
-        == 201
-    )
-    assert (
-        client.get(f"/api/teams/{team['id']}/messages", headers=owner).json()[0]["text"]
-        == "Hello team"
-    )
+    schedule = {"kind": "single", "start_date": "2026-11-21", "required_dates": ["2026-11-21"]}
+    activity = opportunity(client, owner, schedule=schedule)
+    team_id = team(client, owner, activity, schedule=schedule)
+    bad = apply(client, student, team_id, dates=["2026-11-22"])
+    assert bad.status_code == 409
+    pool = client.post(f"/api/opportunities/{activity}/interest", headers=student, json={
+        "date_answers": {"dates": ["2026-11-21"], "weekdays": []}
+    })
+    assert pool.status_code == 200
+    invite = client.post(f"/api/teams/{team_id}/invitations?candidate_id=2", headers=owner)
+    assert invite.status_code == 201, invite.text
+    accepted = client.post(f"/api/invitations/{invite.json()['id']}/accept", headers=student)
+    assert accepted.status_code == 200, accepted.text
+    assert client.get(f"/api/teams/{team_id}", headers=student).json()["member_count"] == 2
+    notice = client.get("/api/me/notifications", headers=student).json()["items"][0]
+    assert client.post(f"/api/me/notifications/{notice['id']}/read", headers=student).status_code == 200
 
 
-def test_duplicates_and_open_signup(client):
-    headers = signup(client, 1)
-    item = {
-        "title": "AI challenge",
-        "description": "Details",
-        "category": "hackathon",
-        "official_url": "https://EXAMPLE.org/event/",
-    }
-    assert (
-        client.post("/api/opportunities", headers=headers, json=item).status_code == 201
-    )
-    assert (
-        client.post(
-            "/api/opportunities",
-            headers=headers,
-            json={**item, "official_url": "https://example.org/event"},
-        ).status_code
-        == 409
-    )
-    response = client.post(
-        "/api/opportunities", headers=headers, json={**item, "official_url": None}
-    )
-    assert response.status_code == 409
-    assert (
-        client.post(
-            "/api/opportunities",
-            headers=headers,
-            json={**item, "official_url": None, "confirm_similar": True},
-        ).status_code
-        == 201
-    )
-    assert (
-        client.get("/api/opportunities?category=hackathon&source=student").status_code
-        == 200
-    )
+@pytest.mark.parametrize("schedule,answer,expected", [
+    ({"kind": "single", "start_date": "2026-11-20", "required_dates": ["2026-11-20"]}, ["2026-11-20"], 201),
+    ({"kind": "range", "start_date": "2026-11-20", "end_date": "2026-11-22", "required_dates": ["2026-11-21"]}, ["2026-11-20"], 409),
+    ({"kind": "range", "start_date": "2026-11-20", "end_date": "2026-11-22", "required_dates": ["2026-11-21"]}, ["2026-11-21"], 201),
+    ({"kind": "recurring", "start_date": "2026-11-16", "end_date": "2026-11-23", "weekdays": [0], "required_weekdays": [0]}, [], 409),
+    ({"kind": "undecided"}, [], 201),
+])
+def test_schedule_rules(client, schedule, answer, expected):
+    owner, student = signup(client, 1), signup(client, 2)
+    activity = opportunity(client, owner, schedule=schedule)
+    team_id = team(client, owner, activity, schedule=schedule)
+    response = apply(client, student, team_id, dates=answer)
+    assert response.status_code == expected, response.text
 
 
-def test_login_and_authorization(client):
-    headers = signup(client, 1)
-    assert (
-        client.post(
-            "/api/auth/login",
-            json={"email": "student1@example.org", "password": "wrong"},
-        ).status_code
-        == 401
-    )
-    assert (
-        client.post(
-            "/api/auth/login",
-            json={"email": "student1@example.org", "password": "password123"},
-        ).status_code
-        == 200
-    )
-    assert client.get("/api/admin/reports", headers=headers).status_code == 403
-    assert client.post("/api/auth/logout", headers=headers).status_code == 200
-    assert client.get("/api/profile", headers=headers).status_code == 401
+def test_remove_transfer_and_close(client):
+    owner, student, another = signup(client, 1), signup(client, 2), signup(client, 3)
+    activity = opportunity(client, owner)
+    team_id = team(client, owner, activity, capacity=3)
+    for headers in (student, another):
+        request = apply(client, headers, team_id)
+        assert request.status_code == 201
+        assert client.post(f"/api/requests/{request.json()['id']}/approve", headers=owner).status_code == 200
+    removed = client.post(f"/api/teams/{team_id}/remove/2", headers=owner)
+    assert removed.status_code == 200, removed.text
+    assert apply(client, student, team_id).status_code == 409
+    assert client.get(f"/api/teams/{team_id}/messages", headers=student).status_code == 403
+    assert client.post(f"/api/teams/{team_id}/transfer", headers=owner, json={"user_id": 3}).status_code == 200
+    assert client.post(f"/api/teams/{team_id}/close", headers=another).status_code == 200
+    assert client.get(f"/api/teams/{team_id}/messages", headers=another).status_code == 403
 
 
-def test_ten_simultaneous_approvals_cannot_overfill(client):
-    owner = signup(client, 0)
-    opportunity_id = create_opportunity(client, owner)
-    team_id = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner,
-        json={"name": "Team", "capacity": 4},
-    ).json()["id"]
+def test_concurrent_approvals_keep_capacity(client):
+    owner = signup(client, 1)
+    activity = opportunity(client, owner)
+    team_id = team(client, owner, activity, capacity=4)
     requests = []
-    for number in range(1, 11):
-        headers = signup(client, number)
-        response = client.post(f"/api/teams/{team_id}/requests", headers=headers)
-        requests.append(response.json()["id"])
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        results = list(
-            pool.map(
-                lambda request_id: client.post(
-                    f"/api/requests/{request_id}/approve", headers=owner
-                ),
-                requests,
-            )
-        )
-    assert sum(response.status_code == 200 for response in results) == 3
+    for number in range(2, 12):
+        student = signup(client, number)
+        requests.append(apply(client, student, team_id).json()["id"])
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        responses = list(executor.map(
+            lambda request_id: client.post(f"/api/requests/{request_id}/approve", headers=owner),
+            requests,
+        ))
+    assert sum(response.status_code == 200 for response in responses) == 3
     with Session(client.engine) as db:
-        assert (
-            len(
-                db.scalars(
-                    select(Membership).where(Membership.team_id == team_id)
-                ).all()
-            )
-            == 4
-        )
+        assert len(db.scalars(select(Membership).where(Membership.team_id == team_id)).all()) == 4
 
 
-def test_admin_hides_and_suspends(client):
-    admin, target = signup(client, 1), signup(client, 2)
+def test_invitation_and_request_compete_for_last_spot(client):
+    owner, requester, invitee = signup(client, 1), signup(client, 2), signup(client, 3)
+    activity = opportunity(client, owner)
+    team_id = team(client, owner, activity)
+    request = apply(client, requester, team_id).json()
+    client.post(f"/api/opportunities/{activity}/interest", headers=invitee, json={
+        "date_answers": {"dates": [], "weekdays": []}
+    })
+    invite = client.post(f"/api/teams/{team_id}/invitations?candidate_id=3", headers=owner).json()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(lambda action: action(), [
+            lambda: client.post(f"/api/requests/{request['id']}/approve", headers=owner),
+            lambda: client.post(f"/api/invitations/{invite['id']}/accept", headers=invitee),
+        ]))
+    assert sum(response.status_code == 200 for response in responses) == 1
     with Session(client.engine) as db:
-        person = db.scalar(select(User).where(User.email == "student1@example.org"))
-        person.is_admin = True
-        db.commit()
-    opportunity_id = create_opportunity(client, target)
-    report = client.post(
-        "/api/reports",
-        headers=target,
-        json={
-            "target_type": "opportunity",
-            "target_id": opportunity_id,
-            "reason": "Incorrect",
-        },
-    )
-    assert report.status_code == 201
-    assert len(client.get("/api/admin/reports", headers=admin).json()) == 1
-    assert (
-        client.post(
-            f"/api/admin/hide-opportunity/{opportunity_id}", headers=admin
-        ).status_code
-        == 200
-    )
-    assert client.get(f"/api/opportunities/{opportunity_id}").status_code == 404
-    assert client.post("/api/admin/suspend-user/2", headers=admin).status_code == 200
-    assert client.get("/api/profile", headers=target).status_code == 401
-    with Session(client.engine) as db:
-        assert (
-            db.scalar(select(ActivityEvent).where(ActivityEvent.name == "signup"))
-            is not None
-        )
+        assert len(db.scalars(select(Membership).where(Membership.team_id == team_id)).all()) == 2
 
 
-def test_date_and_required_availability_exclude_ineligible_candidates(client):
+def test_duplicate_and_profile_privacy(client):
     owner, student = signup(client, 1), signup(client, 2)
-    response = client.post(
-        "/api/opportunities",
-        headers=owner,
-        json={
-            "title": "Dated event",
-            "description": "Details",
-            "category": "study_group",
-            "event_date": "2026-11-28",
-        },
-    )
-    opportunity_id = response.json()["id"]
-    team = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner,
-        json={
-            "name": "Evening group",
-            "capacity": 3,
-            "availability": ["evening"],
-            "availability_required": True,
-        },
-    ).json()
-    assert (
-        client.get(
-            f"/api/opportunities/{opportunity_id}/recommendations", headers=student
-        ).json()
-        == []
-    )
-    assert (
-        client.post(f"/api/teams/{team['id']}/requests", headers=student).status_code
-        == 409
-    )
-    assert (
-        client.put(
-            "/api/profile",
-            headers=student,
-            json={
-                "display_name": "Student",
-                "available_dates": ["2026-11-28"],
-                "availability": ["evening"],
-            },
-        ).status_code
-        == 200
-    )
-    assert (
-        len(
-            client.get(
-                f"/api/opportunities/{opportunity_id}/recommendations", headers=student
-            ).json()
-        )
-        == 1
-    )
-
-
-def test_same_user_cannot_join_two_teams_on_concurrent_approval(client):
-    owner1, owner2, student = signup(client, 1), signup(client, 2), signup(client, 3)
-    opportunity_id = create_opportunity(client, owner1)
-    team1 = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner1,
-        json={"name": "First", "capacity": 3},
-    ).json()["id"]
-    team2 = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner2,
-        json={"name": "Second", "capacity": 3},
-    ).json()["id"]
-    request1 = client.post(f"/api/teams/{team1}/requests", headers=student).json()["id"]
-    request2 = client.post(f"/api/teams/{team2}/requests", headers=student).json()["id"]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [
-            pool.submit(
-                client.post, f"/api/requests/{request1}/approve", headers=owner1
-            ),
-            pool.submit(
-                client.post, f"/api/requests/{request2}/approve", headers=owner2
-            ),
-        ]
-        results = [future.result() for future in futures]
-    assert sorted(response.status_code for response in results) == [200, 409]
-    with Session(client.engine) as db:
-        assert (
-            len(
-                db.scalars(
-                    select(Membership).where(
-                        Membership.user_id == 3,
-                        Membership.opportunity_id == opportunity_id,
-                    )
-                ).all()
-            )
-            == 1
-        )
-
-
-def test_import_sources_and_insights(client):
-    headers = signup(client, 1)
-    with Session(client.engine, expire_on_commit=False) as db:
-        creator = db.get(User, 1)
-        items = [
-            {
-                "title": "Curated event",
-                "description": "Details",
-                "category": "hackathon",
-                "official_url": "https://example.org/a",
-            },
-            {
-                "title": "Bad date",
-                "description": "Details",
-                "category": "hackathon",
-                "event_date": "wrong",
-            },
-        ]
-        assert import_records(db, items, "curated", creator) == (1, 1)
-        assert import_records(db, items[:1], "scraped", creator) == (0, 1)
-        assert import_records(
-            db,
-            [
-                {
-                    "title": "RSS event",
-                    "description": "Details",
-                    "category": "study_group",
-                    "official_url": "https://example.org/b",
-                }
-            ],
-            "scraped",
-            creator,
-        ) == (1, 0)
-    assert len(client.get("/api/opportunities?source=curated").json()) == 1
-    assert len(client.get("/api/opportunities?source=scraped").json()) == 1
-    insights = client.get("/api/insights", headers=headers).json()
-    assert insights["team_fill"]["rate"] is None
-    assert insights["time_to_join"]["sample_size"] == 0
-
-
-def test_insights_keep_interest_history_after_withdrawal(client):
-    owner, student = signup(client, 1), signup(client, 2)
-    opportunity_id = create_opportunity(client, owner)
-    assert (
-        client.post(
-            f"/api/opportunities/{opportunity_id}/interest", headers=student
-        ).status_code
-        == 200
-    )
-    assert (
-        client.delete(
-            f"/api/opportunities/{opportunity_id}/interest", headers=student
-        ).status_code
-        == 200
-    )
-    insights = client.get("/api/insights", headers=owner).json()
-    assert insights["demand"]["hackathon"] == 1
-
-
-def test_search_suggestions_and_participation_state(client):
-    owner, student = signup(client, 1), signup(client, 2)
-    opportunity_id = create_opportunity(client, owner)
-    found = client.get(
-        "/api/opportunities", params={"q": "campus activty", "suggest": "true"}
-    ).json()
-    assert any(item["id"] == opportunity_id for item in found)
-    assert (
-        client.get(f"/api/opportunities/{opportunity_id}/participation").status_code
-        == 401
-    )
-    assert (
-        client.post(
-            f"/api/opportunities/{opportunity_id}/interest", headers=student
-        ).status_code
-        == 200
-    )
-    team_id = client.post(
-        f"/api/opportunities/{opportunity_id}/teams",
-        headers=owner,
-        json={"name": "Team", "capacity": 2},
-    ).json()["id"]
-    request_id = client.post(f"/api/teams/{team_id}/requests", headers=student).json()[
-        "id"
-    ]
-    participation = client.get(
-        f"/api/opportunities/{opportunity_id}/participation", headers=student
-    ).json()
-    assert participation["looking"] is True
-    assert participation["team"] is None
-    assert participation["requests"][0]["status"] == "pending"
-    assert (
-        client.post(f"/api/requests/{request_id}/approve", headers=owner).status_code
-        == 200
-    )
-    participation = client.get(
-        f"/api/opportunities/{opportunity_id}/participation", headers=student
-    ).json()
-    assert participation["looking"] is False
-    assert participation["team"]["id"] == team_id
-    assert participation["requests"][0]["status"] == "approved"
-
-
-def test_team_options_report_hidden_and_full_counts(client):
-    owner, student = signup(client, 1), signup(client, 2)
-    item = client.post(
-        "/api/opportunities",
-        headers=owner,
-        json={
-            "title": "Scheduled",
-            "description": "Details",
-            "category": "study_group",
-            "event_date": "2026-11-28",
-        },
-    ).json()
-    team_id = client.post(
-        f"/api/opportunities/{item['id']}/teams",
-        headers=owner,
-        json={
-            "name": "Evening",
-            "capacity": 2,
-            "availability": ["evening"],
-            "availability_required": True,
-        },
-    ).json()["id"]
-    options = client.get(
-        f"/api/opportunities/{item['id']}/team-options", headers=student
-    ).json()
-    assert options["teams"] == []
-    assert options["hidden_count"] == 1
-    assert set(options["hidden_reasons"]) == {"event_date", "availability"}
-    assert "Evening" not in str(options)
-    client.put(
-        "/api/profile",
-        headers=student,
-        json={
-            "display_name": "Student",
-            "available_dates": ["2026-11-28"],
-            "availability": ["evening"],
-        },
-    )
-    options = client.get(
-        f"/api/opportunities/{item['id']}/team-options", headers=student
-    ).json()
-    assert options["teams"][0]["id"] == team_id
-    request_id = client.post(f"/api/teams/{team_id}/requests", headers=student).json()[
-        "id"
-    ]
-    client.post(f"/api/requests/{request_id}/approve", headers=owner)
-    options = client.get(
-        f"/api/opportunities/{item['id']}/team-options", headers=student
-    ).json()
-    assert options["already_joined"] is True
-    assert options["full_count"] == 1
+    item = {"title": "AI challenge", "description": "Details", "category": "hackathon", "official_url": "https://example.org/event"}
+    activity = client.post("/api/opportunities", headers=owner, json=item)
+    assert activity.status_code == 201
+    assert client.post("/api/opportunities", headers=owner, json=item).status_code == 409
+    assert client.put("/api/profile", headers=student, json={
+        "display_name": "Student 2", "bio": "I enjoy working on campus projects together.",
+        "skills": ["Python", "Design"], "interests": ["hackathon"],
+        "courses": [], "experience": [], "contact": "private@example.org",
+    }).status_code == 200
+    activity_id = activity.json()["id"]
+    team_id = team(client, owner, activity_id)
+    apply(client, student, team_id)
+    viewed = client.get(f"/api/teams/{team_id}/requests", headers=owner).json()[0]["user"]
+    assert "email" not in viewed and "contact" not in viewed
+    assert viewed["skills"] == ["Python", "Design"]

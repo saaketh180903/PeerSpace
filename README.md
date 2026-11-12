@@ -36,9 +36,10 @@ SQLite defaults to `peerspace.db` in the directory from which the backend is sta
 ## Try the workflow
 
 1. Choose **Find people** and search for an activity. You can browse without an account, select an existing activity, or create one if you cannot find it.
-2. On the activity page, review suggested teams and their explanations, create a team, or join the looking pool. For a dated activity, add that date under **Available dates** in your profile to receive a recommendation. Required dates or availability can hide teams.
-3. Sign in or sign up when prompted; accounts are open and do not verify IITB affiliation. After signing in, confirm the action you wanted to take.
-4. Check **My teams** for pending and decided requests. A team owner can approve or decline requests. Accepted members can see the team's optional contact details and group link, and use its private, non-real-time message thread.
+2. Sign up with an introduction, activity interests and plain skill tags. Topics, courses and experience are optional and can be edited later. Existing accounts may need to complete their profile after this upgrade.
+3. Explore shows every activity plus a Low, Medium or High activity-fit estimate. On an activity page, review teams, create one or enter the looking pool. State the dates or recurring days you can attend for that activity; no general evenings/weekends field is used.
+4. Request a team with date answers and motivation, or accept an owner invitation from the looking pool. Owners see a numeric match estimate, factor report and applicant answers before deciding. Required dates must be confirmed before approval or invitation acceptance.
+5. Check **My teams** for memberships, looking pools, requests and invitations. **Notifications** shows updates and an unread count. Members can leave, and owners can remove members, transfer ownership, update the schedule or close the team. Only accepted members see contacts, group links and the private text thread.
 
 You can use separate browser profiles or log out and back in to try the workflow as different users. Nothing is published to GitHub or the internet by running the app locally.
 
@@ -54,7 +55,7 @@ The script first backs up the existing SQLite database, then adds five curated o
 
 For example, sign in as `maya.demo@peerspace.invalid` with password `DemoPeer2026!` to review a demo team, or use your own account to request to join one. All demo accounts use that same public test password, so they are for local testing only and must not be used for real personal information. Insights include demo data when present.
 
-The event dates and registration conditions were checked against the linked organizer pages on 12 November 2026. Follow each listing's official link for current details. The app stores a single date, so the multi-stage event dates are written in the descriptions instead of displaying a misleading single date.
+The event dates and registration conditions were checked against the linked organizer pages on 12 November 2026. Follow each listing's official link for current details. Imported listings keep the organizer's fuller schedule in their description when it cannot be reliably structured.
 
 ## Administrator and imports
 
@@ -103,6 +104,7 @@ npm run build
 
 - `backend/main.py` contains the API routes; `schemas.py` validates request inputs.
 - `backend/models.py` and `database.py` define the SQLite records and connection.
+- `backend/migrate.py` performs the repeatable SQLite upgrade on startup. Use `python -m backend.manage backup path/to/backup.db` before deploying a schema change.
 - `backend/matching.py` contains the category weights and explanations.
 - `backend/security.py` contains password and session-token helpers.
 - `backend/manage.py` contains the local admin and import commands.
@@ -111,4 +113,4 @@ npm run build
 
 ## Current limitations
 
-This is a local MVP, not a production security or deployment setup. Session tokens are held in browser local storage; signup has no email verification or rate limiting. SQLite serializes approval writes using `BEGIN IMMEDIATE`; the current locking code is SQLite-specific and a move to another database requires a migration and new concurrency tests. Database tables are created on startup, but schema migrations have not yet been added. Dated activities require users to explicitly list the date in their profile. Matching weights are initial, explainable rules rather than validated measures. The official course rubric and any real data-source permissions still need confirmation.
+The current hosted version uses Railway with a persistent SQLite volume; the repository also runs locally. Session tokens are held in browser local storage; signup has no email verification or rate limiting. SQLite serializes membership writes using `BEGIN IMMEDIATE`; moving to another database requires a migration and new concurrency tests. Startup upgrades existing SQLite columns and converts old skill dictionaries; old general availability is retained only as legacy data and is never treated as confirmed date answers. Matching weights are initial, explainable rules rather than validated measures. The official course rubric and any real data-source permissions still need confirmation.

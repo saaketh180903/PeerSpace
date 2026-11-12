@@ -7,6 +7,7 @@ import {
   categories,
   csv,
   Opportunity,
+  Schedule,
   skillsFromText,
   skillsText,
   User,
@@ -47,11 +48,18 @@ export function Auth({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [bio, setBio] = useState("");
+  const [skills, setSkills] = useState("");
+  const [interests, setInterests] = useState<string[]>([]);
+  const [topics, setTopics] = useState("");
+  const [courses, setCourses] = useState("");
+  const [experience, setExperience] = useState("");
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
+      if (signup && !interests.length) throw new Error("Choose at least one activity interest.");
       onSuccess(
         await api<{ token: string; user: User }>(
           `/api/auth/${signup ? "signup" : "login"}`,
@@ -61,7 +69,7 @@ export function Auth({
             body: JSON.stringify({
               email,
               password,
-              ...(signup ? { display_name: name } : {}),
+              ...(signup ? { display_name: name, bio, skills: csv(skills), interests, topics: csv(topics), courses: csv(courses), experience: csv(experience) } : {}),
             }),
           },
         ),
@@ -113,6 +121,23 @@ export function Auth({
             placeholder="At least 8 characters"
           />
         </label>
+        {signup && <>
+          <label>Short introduction
+            <textarea required minLength={20} maxLength={500} value={bio} onChange={(event) => setBio(event.target.value)} placeholder="What do you enjoy working on?" />
+          </label>
+          <label>Skills <small>Comma separated names, no levels</small>
+            <input required value={skills} onChange={(event) => setSkills(event.target.value)} placeholder="Python, design, hiking" />
+          </label>
+          <fieldset className="interest-choices"><legend>Activities you are interested in</legend>
+            {Object.entries(categories).map(([key, label]) => <label key={key} className="check">
+              <input type="checkbox" checked={interests.includes(key)} onChange={(event) => setInterests(event.target.checked ? [...interests, key] : interests.filter((value) => value !== key))} /> {label}
+            </label>)}
+          </fieldset>
+          <label>Topics you like <small>Optional</small><input value={topics} onChange={(event) => setTopics(event.target.value)} placeholder="AI, design, mountains" /></label>
+          <label>Courses <small>Optional</small><input value={courses} onChange={(event) => setCourses(event.target.value)} placeholder="CS101, EE101" /></label>
+          <label>Past projects or experience <small>Optional</small><input value={experience} onChange={(event) => setExperience(event.target.value)} placeholder="Web app, hiking" /></label>
+          <div className="notice">Profile preview: {name || "Your name"} · {csv(skills).join(", ") || "Add a skill"} · {interests.map((value) => categories[value]).join(", ") || "Choose an activity"}<p>{bio}</p></div>
+        </>}
         {error && (
           <div className="notice error" role="alert">
             {error}
@@ -148,12 +173,10 @@ export function ProfileForm({
   onSaved: (user: User) => void;
 }) {
   const [name, setName] = useState(user.display_name);
+  const [bio, setBio] = useState(user.bio || "");
   const [skills, setSkills] = useState(skillsText(user.skills));
   const [interests, setInterests] = useState(user.interests.join(", "));
-  const [availability, setAvailability] = useState(
-    user.availability.join(", "),
-  );
-  const [dates, setDates] = useState(user.available_dates.join(", "));
+  const [topics, setTopics] = useState((user.topics || []).join(", "));
   const [courses, setCourses] = useState(user.courses.join(", "));
   const [experience, setExperience] = useState(user.experience.join(", "));
   const [contact, setContact] = useState(user.contact || "");
@@ -168,10 +191,10 @@ export function ProfileForm({
         method: "PUT",
         body: JSON.stringify({
           display_name: name,
+          bio,
           skills: skillsFromText(skills),
           interests: csv(interests),
-          availability: csv(availability),
-          available_dates: csv(dates),
+          topics: csv(topics),
           courses: csv(courses),
           experience: csv(experience),
           contact: contact || null,
@@ -188,7 +211,7 @@ export function ProfileForm({
       <span className="section-kicker">A LITTLE ABOUT YOU</span>
       <h1>Your profile</h1>
       <p>
-        Your skills and availability help us show relevant teams. Contact
+        Your interests, skills and experience help us show relevant teams. Contact
         details are visible only to your team members.
       </p>
       <form className="form-stack" onSubmit={submit}>
@@ -200,39 +223,25 @@ export function ProfileForm({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
+        <label>Short introduction
+          <textarea required minLength={20} maxLength={500} value={bio} onChange={(event) => setBio(event.target.value)} />
+        </label>
         <label>
-          Skills and levels <small>For example: Python:4, Design:3</small>
+          Skills <small>Comma separated names</small>
           <input
+            required
             value={skills}
             onChange={(event) => setSkills(event.target.value)}
-            placeholder="Python:4, Design:3"
+            placeholder="Python, Design"
           />
         </label>
         <div className="form-grid">
-          <label>
-            Interests <small>Comma separated</small>
-            <input
-              value={interests}
-              onChange={(event) => setInterests(event.target.value)}
-              placeholder="hackathon, study_group"
-            />
-          </label>
-          <label>
-            Regular availability <small>Comma separated</small>
-            <input
-              value={availability}
-              onChange={(event) => setAvailability(event.target.value)}
-              placeholder="evenings, weekends"
-            />
-          </label>
-          <label>
-            Available dates <small>YYYY-MM-DD, comma separated</small>
-            <input
-              value={dates}
-              onChange={(event) => setDates(event.target.value)}
-              placeholder="2026-11-28"
-            />
-          </label>
+          <fieldset className="interest-choices"><legend>Activity interests</legend>
+            {Object.entries(categories).map(([key, label]) => <label key={key} className="check">
+              <input type="checkbox" checked={csv(interests).includes(key)} onChange={(event) => setInterests(event.target.checked ? [...csv(interests), key].join(", ") : csv(interests).filter((value) => value !== key).join(", "))} /> {label}
+            </label>)}
+          </fieldset>
+          <label>Topics you like <small>Comma separated</small><input value={topics} onChange={(event) => setTopics(event.target.value)} placeholder="AI, design, mountains" /></label>
           <label>
             Courses <small>Comma separated</small>
             <input
@@ -268,6 +277,47 @@ export function ProfileForm({
   );
 }
 
+export function ScheduleEditor({value, onChange}: {value: Schedule; onChange: (value: Schedule) => void}) {
+  const update = (part: Partial<Schedule>) => onChange({...value, ...part});
+  return <fieldset className="schedule-editor">
+    <legend>Schedule</legend>
+    <label>When?
+      <select value={value.kind} onChange={(event) => update({kind: event.target.value as Schedule["kind"]})}>
+        <option value="undecided">To be decided together</option>
+        <option value="single">One date</option>
+        <option value="range">Date range</option>
+        <option value="recurring">Recurring weekdays in a date range</option>
+      </select>
+    </label>
+    {value.kind !== "undecided" && <label>Start date
+      <input required type="date" value={value.start_date || ""} onChange={(event) => update({start_date: event.target.value, ...(value.kind === "single" && (value.required_dates || []).length ? {required_dates: [event.target.value]} : {})})} />
+    </label>}
+    {(value.kind === "range" || value.kind === "recurring") && <label>End date
+      <input required type="date" value={value.end_date || ""} onChange={(event) => update({end_date: event.target.value})} />
+    </label>}
+    {value.kind === "single" && <label className="check">
+      <input type="checkbox" checked={(value.required_dates || []).includes(value.start_date || "")} onChange={(event) => update({required_dates: event.target.checked && value.start_date ? [value.start_date] : []})} />
+      This date is required
+    </label>}
+    {value.kind === "range" && <label>Required dates <small>YYYY-MM-DD, comma separated. Other dates are preferences.</small>
+      <input value={(value.required_dates || []).join(", ")} onChange={(event) => update({required_dates: csv(event.target.value)})} />
+    </label>}
+    {value.kind === "recurring" && <>
+      <p>Meeting days</p>
+      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => <label className="check" key={day}>
+        <input type="checkbox" checked={(value.weekdays || []).includes(index)} onChange={(event) => update({weekdays: event.target.checked ? [...(value.weekdays || []), index] : (value.weekdays || []).filter((item) => item !== index)})} /> {day}
+      </label>)}
+      <p>Required days</p>
+      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => <label className="check" key={day}>
+        <input type="checkbox" checked={(value.required_weekdays || []).includes(index)} onChange={(event) => update({required_weekdays: event.target.checked ? [...(value.required_weekdays || []), index] : (value.required_weekdays || []).filter((item) => item !== index)})} /> {day}
+      </label>)}
+    </>}
+    {value.kind !== "undecided" && <label>Time window <small>Optional, for example 10:00–13:00</small>
+      <input value={value.time_window || ""} onChange={(event) => update({time_window: event.target.value})} />
+    </label>}
+  </fieldset>;
+}
+
 export function OpportunityForm({
   token,
   onCreated,
@@ -280,7 +330,12 @@ export function OpportunityForm({
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("hackathon");
-  const [date, setDate] = useState("");
+  const [schedule, setSchedule] = useState<Schedule>({kind: "undecided"});
+  const [topics, setTopics] = useState("");
+  const [skills, setSkills] = useState("");
+  const [course, setCourse] = useState("");
+  const [experience, setExperience] = useState("");
+  const [eligibility, setEligibility] = useState("");
   const [organizer, setOrganizer] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -298,7 +353,12 @@ export function OpportunityForm({
           title,
           description,
           category,
-          event_date: date || null,
+          schedule,
+          topics: csv(topics),
+          skills: csv(skills),
+          course: course || null,
+          experience: csv(experience),
+          eligibility,
           organizer: organizer || null,
           official_url: url || null,
           confirm_similar: confirm,
@@ -367,14 +427,6 @@ export function OpportunityForm({
             </select>
           </label>
           <label>
-            Event date <small>Optional</small>
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
-          </label>
-          <label>
             Organizer <small>Optional</small>
             <input
               value={organizer}
@@ -391,6 +443,16 @@ export function OpportunityForm({
             />
           </label>
         </div>
+        <ScheduleEditor value={schedule} onChange={setSchedule} />
+        <div className="form-grid">
+          <label>Topics <small>Comma separated</small><input value={topics} onChange={(event) => setTopics(event.target.value)} placeholder="AI, sustainability" /></label>
+          <label>Suggested skills <small>Comma separated</small><input value={skills} onChange={(event) => setSkills(event.target.value)} placeholder="Python, Design" /></label>
+          <label>Course <small>Optional</small><input value={course} onChange={(event) => setCourse(event.target.value)} /></label>
+          <label>Relevant experience <small>Comma separated</small><input value={experience} onChange={(event) => setExperience(event.target.value)} /></label>
+        </div>
+        <label>Organizer eligibility <small>Shown as supplied; PeerSpace does not verify it.</small>
+          <textarea value={eligibility} onChange={(event) => setEligibility(event.target.value)} />
+        </label>
         {error && (
           <div className="notice error">
             {error}
@@ -453,8 +515,9 @@ export function TeamForm({
   const [name, setName] = useState("");
   const [capacity, setCapacity] = useState(4);
   const [skills, setSkills] = useState("");
-  const [availability, setAvailability] = useState("");
-  const [required, setRequired] = useState(false);
+  const [goal, setGoal] = useState("");
+  const [schedule, setSchedule] = useState<Schedule>({kind: "undecided"});
+  const [question, setQuestion] = useState("");
   const [course, setCourse] = useState("");
   const [experience, setExperience] = useState("");
   const [link, setLink] = useState("");
@@ -472,8 +535,9 @@ export function TeamForm({
             name,
             capacity,
             skills: skillsFromText(skills),
-            availability: csv(availability),
-            availability_required: required,
+            goal,
+            schedule,
+            question,
             course: course || null,
             experience: csv(experience),
             group_link: link || null,
@@ -510,28 +574,15 @@ export function TeamForm({
           />
         </label>
         <label>
-          Skills needed <small>e.g. Python:4, Design:3</small>
+          Skills needed <small>Comma separated names</small>
           <input
             value={skills}
             onChange={(event) => setSkills(event.target.value)}
           />
         </label>
-        <label>
-          Availability <small>Comma separated</small>
-          <input
-            value={availability}
-            onChange={(event) => setAvailability(event.target.value)}
-            placeholder="evenings, weekends"
-          />
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={required}
-            onChange={(event) => setRequired(event.target.checked)}
-          />{" "}
-          Matching availability is required
-        </label>
+        <label>Team goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What will this team work toward?" /></label>
+        <ScheduleEditor value={schedule} onChange={setSchedule} />
+        <label>Optional question for applicants<input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What would you contribute?" /></label>
         <label>
           Course <small>Optional</small>
           <input

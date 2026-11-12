@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, categories, Opportunity, User } from "../lib/api";
+import { api, categories, Opportunity, User, scheduleLabel } from "../lib/api";
 import { Auth, ProfileForm, OpportunityForm, TeamForm } from "./forms";
-import { OpportunityDetails, TeamDetails, Dashboard, Admin } from "./views";
+import { OpportunityDetails, TeamDetails, Dashboard, Admin, NotificationsView } from "./views";
 import ActivityFinder from "./finder";
 
 type Page =
@@ -11,6 +11,7 @@ type Page =
   | "find"
   | "profile"
   | "my-teams"
+  | "notifications"
   | "insights"
   | "admin"
   | "create"
@@ -38,6 +39,7 @@ export default function Home() {
     teamId?: number;
   } | null>(null);
   const [authMessage, setAuthMessage] = useState("");
+  const [unread, setUnread] = useState(0);
   const afterLogin = useRef<(() => void) | null>(null);
 
   const showLocation = useCallback(async () => {
@@ -47,6 +49,7 @@ export default function Home() {
       "find",
       "profile",
       "my-teams",
+      "notifications",
       "insights",
       "admin",
       "create",
@@ -71,7 +74,7 @@ export default function Home() {
       const search = window.location.search;
       setSelected(null);
       try {
-        const item = await api<Opportunity>(`/api/opportunities/${id}`);
+        const item = await api<Opportunity>(`/api/opportunities/${id}`, localStorage.getItem("peerspace_token") || "");
         if (window.location.search === search) {
           setSelected(item);
           setError("");
@@ -124,7 +127,7 @@ export default function Home() {
     try {
       const params = new URLSearchParams({ q: query, category, source });
       setOpportunities(
-        await api<Opportunity[]>(`/api/opportunities?${params}`),
+        await api<Opportunity[]>(`/api/opportunities?${params}`, token),
       );
       setError("");
     } catch (err) {
@@ -132,7 +135,7 @@ export default function Home() {
         err instanceof Error ? err.message : "Unable to load opportunities.",
       );
     }
-  }, [query, category, source]);
+  }, [query, category, source, token]);
 
   useEffect(() => {
     void refresh();
@@ -147,6 +150,13 @@ export default function Home() {
         })
         .catch(() => localStorage.removeItem("peerspace_token"));
   }, []);
+  useEffect(() => {
+    if (!token) { setUnread(0); return; }
+    const update = () => api<{unread_count: number}>("/api/me/notifications", token).then((value) => setUnread(value.unread_count)).catch(() => {});
+    void update();
+    const timer = window.setInterval(update, 30000);
+    return () => window.clearInterval(timer);
+  }, [token, page]);
 
   useEffect(() => {
     if (window.history.state?.peerSpaceIndex == null) {
@@ -171,6 +181,7 @@ export default function Home() {
     setToken(value.token);
     setUser(value.user);
     setAuthOpen(false);
+    void showLocation();
     const next = afterLogin.current;
     afterLogin.current = null;
     if (next) next();
@@ -232,10 +243,17 @@ export default function Home() {
               Explore
             </button>
             <button
+              className={page === "find" ? "active" : ""}
+              onClick={() => navigate("find")}
+            >Find people</button>
+            <button
               className={page === "my-teams" ? "active" : ""}
               onClick={() => needLogin(() => navigate("my-teams"))}
             >
               My teams
+            </button>
+            <button className={page === "notifications" ? "active" : ""} onClick={() => needLogin(() => navigate("notifications"))}>
+              Notifications {unread > 0 && <span className="count-pill">{unread}</span>}
             </button>
             <button
               className={page === "insights" ? "active" : ""}
@@ -290,6 +308,10 @@ export default function Home() {
       {authMessage && (
         <div className="notice success global-notice">{authMessage}</div>
       )}
+      {user && !user.profile_complete && page !== "profile" && <div className="notice global-notice">
+        Complete your profile to join a looking pool, request a team or create an activity. Your old availability entries need review.
+        <button className="inline-link" onClick={() => navigate("profile")}>Edit profile →</button>
+      </div>}
       {page === "explore" && (
         <main className="container">
           <section className="hero">
@@ -402,10 +424,11 @@ export default function Home() {
                   </div>
                   <div className="card-content">
                     <div className="card-meta">
-                      {item.event_date || "SEE DATE DETAILS"} <span>·</span>{" "}
+                      {scheduleLabel(item.schedule)} <span>·</span>{" "}
                       {item.source.toUpperCase()}
                     </div>
                     <h3>{item.title}</h3>
+                    {item.fit && <p><strong>{item.fit.band} activity fit</strong> · Guidance · {item.fit.explanation.slice(0, 2).join(" · ")}</p>}
                     <p>{item.description}</p>
                     <div className="card-footer">
                       <span>◉ {item.team_count} teams</span>
@@ -474,9 +497,12 @@ export default function Home() {
           <button className="back" onClick={goBack}>
             ← Back
           </button>
-          <ProfileForm user={user} token={token} onSaved={setUser} />
+          <ProfileForm user={user} token={token} onSaved={(updated) => {setUser(updated); void refresh();}} />
         </main>
       )}
+      {page === "notifications" && user && <main className="container inner-page">
+        <NotificationsView token={token} onTeam={openTeam} onOpportunity={openOpportunity} onCount={setUnread} />
+      </main>}
       {page === "opportunity" && selected && (
         <main className="container inner-page">
           <button className="back" onClick={goBack}>
@@ -526,6 +552,7 @@ export default function Home() {
         page === "profile" ||
         page === "create" ||
         page === "my-teams" ||
+        page === "notifications" ||
         page === "insights") &&
         !user && (
           <main className="container inner-page">
@@ -540,7 +567,7 @@ export default function Home() {
         )}
       {(page === "my-teams" || page === "insights") && user && (
         <main className="container inner-page">
-          <Dashboard mode={page} token={token} onTeam={openTeam} />
+          <Dashboard mode={page} token={token} onTeam={openTeam} onOpportunity={openOpportunity} />
         </main>
       )}
       {page === "admin" && user?.is_admin && (

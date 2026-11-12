@@ -11,7 +11,8 @@ import sqlite3
 
 from sqlalchemy import select
 
-from .database import DATABASE_URL, SessionLocal
+from .database import DATABASE_URL, SessionLocal, engine
+from .migrate import migrate
 from .models import ActivityEvent, Interest, Membership, Opportunity, Team, User
 from .security import hash_password
 
@@ -128,6 +129,7 @@ def backup_database():
 
 def seed():
     backup = backup_database()
+    migrate(engine)
     with SessionLocal() as db:
         users = {}
         for key, name, skills, availability, interests in DEMO_USERS:
@@ -142,9 +144,10 @@ def seed():
                     email=email,
                     display_name=name,
                     password_hash=hash_password(DEMO_PASSWORD),
-                    skills=skills,
-                    availability=availability,
-                    interests=interests,
+                    skills=list(skills),
+                    bio=f"{name} is a fictional demo student exploring campus activities.",
+                    topics=interests,
+                    interests=["hackathon"],
                     available_dates=[],
                     courses=[],
                     experience=[],
@@ -167,6 +170,7 @@ def seed():
                     category="hackathon",
                     source="curated",
                     event_date=None,
+                    schedule={"kind": "undecided"},
                     created_by=users["maya"].id,
                 )
                 db.add(item)
@@ -202,8 +206,9 @@ def seed():
                     owner_id=owner.id,
                     name=name,
                     capacity=capacity,
-                    skills=skills,
-                    availability=availability,
+                    skills=list(skills),
+                    goal="Build a team for this activity",
+                    schedule={"kind": "undecided"},
                     availability_required=False,
                     experience=[],
                 )

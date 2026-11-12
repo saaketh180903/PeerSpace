@@ -12,6 +12,12 @@ class Signup(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=8, max_length=128)
+    bio: str = Field(min_length=20, max_length=500)
+    interests: list[Category] = Field(min_length=1)
+    skills: list[str] = Field(min_length=1)
+    topics: list[str] = Field(default_factory=list)
+    courses: list[str] = Field(default_factory=list)
+    experience: list[str] = Field(default_factory=list)
 
     @field_validator("display_name")
     @classmethod
@@ -32,6 +38,14 @@ class Signup(BaseModel):
             raise ValueError("Enter a valid email address")
         return value
 
+    @field_validator("skills")
+    @classmethod
+    def signup_skills(cls, value):
+        names = list(dict.fromkeys(name.strip() for name in value if name.strip()))
+        if not names or any(len(name) > 60 for name in names):
+            raise ValueError("Enter at least one skill name, up to 60 characters")
+        return names
+
 
 class Login(BaseModel):
     email: str
@@ -40,10 +54,10 @@ class Login(BaseModel):
 
 class Profile(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
-    skills: dict[str, int] = Field(default_factory=dict)
-    interests: list[str] = Field(default_factory=list)
-    availability: list[str] = Field(default_factory=list)
-    available_dates: list[date] = Field(default_factory=list)
+    bio: str = Field(min_length=20, max_length=500)
+    skills: list[str] = Field(min_length=1)
+    interests: list[Category] = Field(min_length=1)
+    topics: list[str] = Field(default_factory=list)
     courses: list[str] = Field(default_factory=list)
     experience: list[str] = Field(default_factory=list)
     contact: str | None = Field(default=None, max_length=320)
@@ -58,11 +72,60 @@ class Profile(BaseModel):
     @field_validator("skills")
     @classmethod
     def valid_skills(cls, value):
-        if any(
-            not name.strip() or level < 1 or level > 5 for name, level in value.items()
+        if any(not name.strip() or len(name) > 60 for name in value):
+            raise ValueError("Enter skill names up to 60 characters")
+        return list(dict.fromkeys(name.strip() for name in value))
+
+
+class Schedule(BaseModel):
+    kind: Literal["undecided", "single", "range", "recurring"] = "undecided"
+    start_date: date | None = None
+    end_date: date | None = None
+    weekdays: list[int] = Field(default_factory=list)
+    required_dates: list[date] = Field(default_factory=list)
+    required_weekdays: list[int] = Field(default_factory=list)
+    time_window: str = Field(default="", max_length=100)
+
+    @field_validator("weekdays", "required_weekdays")
+    @classmethod
+    def valid_weekdays(cls, value):
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("Weekdays must be 0 (Monday) through 6 (Sunday)")
+        return sorted(set(value))
+
+    def normalized(self):
+        if self.kind != "undecided" and not self.start_date:
+            raise ValueError("Choose a start date")
+        if self.kind in ("range", "recurring"):
+            if not self.end_date or self.end_date < self.start_date:
+                raise ValueError("Choose an end date after the start date")
+            if (self.end_date - self.start_date).days > 365:
+                raise ValueError("A schedule may span up to one year")
+        if self.kind == "recurring" and not self.weekdays:
+            raise ValueError("Choose at least one recurring weekday")
+        if self.kind == "single" and self.required_dates and self.required_dates != [self.start_date]:
+            raise ValueError("Required date must match the activity date")
+        if self.kind == "recurring" and not set(self.required_weekdays) <= set(self.weekdays):
+            raise ValueError("Required weekdays must be listed weekdays")
+        if self.kind == "range" and any(
+            day < self.start_date or day > self.end_date for day in self.required_dates
         ):
-            raise ValueError("Skills must have a name and a level from 1 to 5")
-        return value
+            raise ValueError("Required dates must be within the date range")
+        return self.model_dump(mode="json")
+
+
+class DateAnswers(BaseModel):
+    dates: list[date] = Field(default_factory=list)
+    weekdays: list[int] = Field(default_factory=list)
+
+
+class InterestInput(BaseModel):
+    date_answers: DateAnswers = Field(default_factory=DateAnswers)
+
+
+class JoinInput(InterestInput):
+    motivation: str = Field(default="", max_length=1000)
+    question_answer: str = Field(default="", max_length=1000)
 
 
 class OpportunityInput(BaseModel):
@@ -72,6 +135,12 @@ class OpportunityInput(BaseModel):
     organizer: str | None = Field(default=None, max_length=200)
     official_url: str | None = Field(default=None, max_length=2048)
     event_date: date | None = None
+    topics: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    course: str | None = None
+    experience: list[str] = Field(default_factory=list)
+    eligibility: str = Field(default="", max_length=2000)
+    schedule: Schedule = Field(default_factory=Schedule)
     confirm_similar: bool = False
 
     @field_validator("title", "description")
@@ -85,9 +154,10 @@ class OpportunityInput(BaseModel):
 class TeamInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     capacity: int = Field(ge=1, le=100)
-    skills: dict[str, int] = Field(default_factory=dict)
-    availability: list[str] = Field(default_factory=list)
-    availability_required: bool = False
+    skills: list[str] = Field(default_factory=list)
+    goal: str = Field(default="", max_length=1000)
+    schedule: Schedule = Field(default_factory=Schedule)
+    question: str = Field(default="", max_length=500)
     course: str | None = None
     experience: list[str] = Field(default_factory=list)
     group_link: str | None = Field(default=None, max_length=2048)
@@ -99,14 +169,14 @@ class TeamInput(BaseModel):
             raise ValueError("Enter a team name")
         return value.strip()
 
-    @field_validator("skills")
-    @classmethod
-    def valid_skills(cls, value):
-        if any(
-            not name.strip() or level < 1 or level > 5 for name, level in value.items()
-        ):
-            raise ValueError("Skills must have a name and a level from 1 to 5")
-        return value
+
+
+class MembershipExitInput(BaseModel):
+    return_to_pool: bool = False
+
+
+class OwnerTransferInput(BaseModel):
+    user_id: int
 
 
 class MessageInput(BaseModel):

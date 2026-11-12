@@ -21,24 +21,25 @@ def make_data(seed):
         skill = randomizer.choice(SKILLS)
         users.append(
             SimpleNamespace(
-                skills={skill: randomizer.randint(1, 5)},
-                availability=[randomizer.choice(["morning", "evening"])],
+                skills=[skill],
                 interests=[randomizer.choice(CATEGORIES)],
+                topics=[randomizer.choice(["AI", "climate", "outdoors"])],
                 courses=[randomizer.choice(["CS101", "EE101"])],
                 experience=[randomizer.choice(["hiking", "beginner"])],
-                available_dates=[],
             )
         )
     groups = []
     for index, category in enumerate(CATEGORIES):
         team = SimpleNamespace(
-            skills={SKILLS[index]: 3},
-            availability=["evening"],
-            availability_required=False,
+            skills=[SKILLS[index]],
+            schedule={"kind": "undecided"},
             course="CS101",
             experience=["hiking"],
         )
-        groups.append((team, SimpleNamespace(category=category, event_date=None)))
+        groups.append((team, SimpleNamespace(
+            category=category, topics=["AI"], skills=[SKILLS[index]],
+            course="CS101", experience=["hiking"], schedule={"kind": "undecided"}
+        )))
     return users, groups
 
 
