@@ -19,7 +19,7 @@ These settings prepare a small trial. The app has not yet been deployed or revie
 
 ## Frontend service
 
-- Use the same source with root directory `/frontend`; Railway detects its Dockerfile.
+- Use the same source with root directory `/` and set `RAILWAY_DOCKERFILE_PATH` to `frontend/Dockerfile`.
 - Set `NEXT_PUBLIC_API_URL` to the backend's HTTPS public URL, without a trailing slash. It must be present during the frontend build; redeploy the frontend when it changes.
 - Generate a frontend public domain, then put its exact URL in the backend `ALLOWED_ORIGINS` and redeploy the backend.
 
