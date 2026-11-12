@@ -72,3 +72,13 @@ def migrate(engine):
                     WHERE event_date IS NOT NULL AND schedule = '{}'
                 """)
             )
+            connection.execute(text(
+                "UPDATE opportunities SET schedule=json_object('kind', 'undecided') "
+                "WHERE schedule = '{}'"
+            ))
+        if "teams" in existing_tables and "opportunities" in existing_tables:
+            connection.execute(text(
+                "UPDATE teams SET schedule=COALESCE("
+                "(SELECT schedule FROM opportunities WHERE opportunities.id=teams.opportunity_id), "
+                "json_object('kind', 'undecided')) WHERE teams.schedule = '{}'"
+            ))

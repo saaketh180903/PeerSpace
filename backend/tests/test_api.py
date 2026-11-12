@@ -212,3 +212,18 @@ def test_duplicate_and_profile_privacy(client):
     viewed = client.get(f"/api/teams/{team_id}/requests", headers=owner).json()[0]["user"]
     assert "email" not in viewed and "contact" not in viewed
     assert viewed["skills"] == ["Python", "Design"]
+
+
+def test_incomplete_legacy_profile_has_no_misleading_fit(client):
+    owner, student = signup(client, 1), signup(client, 2)
+    activity = opportunity(client, owner)
+    team_id = team(client, owner, activity)
+    with Session(client.engine) as db:
+        person = db.get(main.User, 2)
+        person.bio = ""
+        db.commit()
+    item = client.get(f"/api/opportunities/{activity}", headers=student).json()
+    assert "fit" not in item
+    choices = client.get(f"/api/opportunities/{activity}/team-options", headers=student).json()
+    assert choices["teams"][0]["id"] == team_id
+    assert "score" not in choices["teams"][0]

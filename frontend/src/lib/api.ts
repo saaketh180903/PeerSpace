@@ -78,8 +78,14 @@ export const csv = (value: string) => value.split(",").map((item) => item.trim()
 export const skillsFromText = csv;
 export const skillsText = (skills: string[]) => skills.join(", ");
 export function scheduleLabel(schedule?: Schedule) {
-  if (!schedule || schedule.kind === "undecided") return "Schedule to be decided";
-  if (schedule.kind === "single") return schedule.start_date || "Date to be confirmed";
-  if (schedule.kind === "range") return `${schedule.start_date} to ${schedule.end_date}`;
-  return `Recurring ${(schedule.weekdays || []).map((day) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day]).join(", ")} · ${schedule.start_date} to ${schedule.end_date}`;
+  if (!schedule || !schedule.kind || schedule.kind === "undecided") return "Schedule to be decided";
+  const window = schedule.time_window ? ` · ${schedule.time_window}` : "";
+  if (schedule.kind === "single") return schedule.start_date ? `${schedule.start_date}${window}` : "Date to be confirmed";
+  if (!schedule.start_date || !schedule.end_date) return "Dates to be confirmed";
+  if (schedule.kind === "range") return `${schedule.start_date} to ${schedule.end_date}${window}`;
+  if (schedule.kind === "recurring") {
+    const days = (schedule.weekdays || []).map((day) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day]).filter(Boolean).join(", ");
+    return days ? `${days}, ${schedule.start_date} to ${schedule.end_date}${window}` : `Recurring, ${schedule.start_date} to ${schedule.end_date}${window}`;
+  }
+  return "Schedule to be decided";
 }

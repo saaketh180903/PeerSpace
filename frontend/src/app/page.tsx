@@ -308,10 +308,15 @@ export default function Home() {
       {authMessage && (
         <div className="notice success global-notice">{authMessage}</div>
       )}
-      {user && !user.profile_complete && page !== "profile" && <div className="notice global-notice">
-        Complete your profile to join a looking pool, request a team or create an activity. Your old availability entries need review.
-        <button className="inline-link" onClick={() => navigate("profile")}>Edit profile →</button>
-      </div>}
+      {user && !user.profile_complete && page !== "profile" && (
+        <div className="profile-alert" role="status">
+          <div>
+            <strong>Finish your profile</strong>
+            <p>Add a short introduction, activity interests and skills before joining or creating a team. Old availability entries are not used as confirmed dates.</p>
+          </div>
+          <button className="button small" onClick={() => navigate("profile")}>Edit profile →</button>
+        </div>
+      )}
       {page === "explore" && (
         <main className="container">
           <section className="hero">

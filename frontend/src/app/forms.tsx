@@ -513,7 +513,7 @@ export function TeamForm({
   onCreated: (id: number) => void;
 }) {
   const [name, setName] = useState("");
-  const [capacity, setCapacity] = useState(4);
+  const [openSpots, setOpenSpots] = useState(3);
   const [skills, setSkills] = useState("");
   const [goal, setGoal] = useState("");
   const [schedule, setSchedule] = useState<Schedule>({kind: "undecided"});
@@ -533,7 +533,7 @@ export function TeamForm({
           method: "POST",
           body: JSON.stringify({
             name,
-            capacity,
+            capacity: openSpots + 1,
             skills: skillsFromText(skills),
             goal,
             schedule,
@@ -564,13 +564,13 @@ export function TeamForm({
           />
         </label>
         <label>
-          Team size
+          Open spots <small>How many students can join you?</small>
           <input
             type="number"
             min={1}
-            max={100}
-            value={capacity}
-            onChange={(event) => setCapacity(Number(event.target.value))}
+            max={99}
+            value={openSpots}
+            onChange={(event) => setOpenSpots(Number(event.target.value))}
           />
         </label>
         <label>

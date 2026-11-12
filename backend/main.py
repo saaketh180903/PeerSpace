@@ -224,7 +224,7 @@ def opportunity_view(db, item, user=None):
             .where(Interest.opportunity_id == item.id, Interest.looking.is_(True))
         ),
     }
-    if user:
+    if user and user.bio and user.skills and user.interests:
         result["fit"] = activity_match(user, item)
     return result
 
@@ -626,8 +626,11 @@ def team_options(
             continue
         if membership:
             continue
-        eligible.append({**team_view(db, team), **score_match(user, team, opportunity, answers)})
-    eligible.sort(key=lambda item: (-item["score"], item["id"]))
+        result = team_view(db, team)
+        if user.bio and user.skills and user.interests:
+            result.update(score_match(user, team, opportunity, answers))
+        eligible.append(result)
+    eligible.sort(key=lambda item: (-item.get("score", 0), item["id"]))
     return {
         "teams": eligible,
         "total_teams": len(teams),
@@ -949,6 +952,7 @@ def decide_invitation(invitation_id: int, decision: str, user: User = Depends(cu
         raise HTTPException(409, "Invitation is no longer pending")
     team = team_or_404(db, invite.team_id)
     if decision == "accept":
+        ensure_profile(user)
         if team.closed or member_count(db, team.id) >= team.capacity:
             raise HTTPException(409, "Team is no longer open")
         if db.scalar(select(Membership.id).where(Membership.user_id == user.id, Membership.opportunity_id == team.opportunity_id)):

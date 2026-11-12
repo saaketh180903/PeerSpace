@@ -22,6 +22,40 @@ import {
 } from "../lib/api";
 import {ScheduleEditor} from "./forms";
 
+const weekdayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function DateAnswerFields({schedule, value, onChange}: {schedule: Schedule; value: DateAnswers; onChange: (value: DateAnswers) => void}) {
+  const [selected, setSelected] = useState("");
+  if (!schedule?.kind || schedule.kind === "undecided") return <p>Dates can be decided with the team later.</p>;
+  const required = new Set(schedule.required_dates || []);
+  function toggleDate(day: string) {
+    onChange({...value, dates: value.dates.includes(day) ? value.dates.filter((item) => item !== day) : [...value.dates, day].sort()});
+  }
+  return <div className="date-answer-fields">
+    <p><strong>When can you take part?</strong> Required dates are marked below.</p>
+    {schedule.kind === "single" && schedule.start_date && <label className="date-choice">
+      <input type="checkbox" checked={value.dates.includes(schedule.start_date)} onChange={() => toggleDate(schedule.start_date!)} />
+      {schedule.start_date} {required.has(schedule.start_date) && <span className="required-tag">Required</span>}
+    </label>}
+    {schedule.kind === "range" && <>
+      {(schedule.required_dates || []).map((day) => <label className="date-choice" key={day}>
+        <input type="checkbox" checked={value.dates.includes(day)} onChange={() => toggleDate(day)} />{day}<span className="required-tag">Required</span>
+      </label>)}
+      <div className="date-picker-row"><label>Other dates you can attend
+        <input type="date" min={schedule.start_date || undefined} max={schedule.end_date || undefined} value={selected} onChange={(event) => setSelected(event.target.value)} />
+      </label><button type="button" className="button secondary small" disabled={!selected || value.dates.includes(selected)} onClick={() => {toggleDate(selected); setSelected("");}}>Add date</button></div>
+      {value.dates.filter((day) => !required.has(day)).length > 0 && <div className="selected-dates">{value.dates.filter((day) => !required.has(day)).map((day) => <button type="button" className="date-chip" key={day} onClick={() => toggleDate(day)}>{day} ×</button>)}</div>}
+    </>}
+    {schedule.kind === "recurring" && <div className="weekday-choices">
+      {(schedule.weekdays || []).map((day) => <label className="date-choice" key={day}>
+        <input type="checkbox" checked={value.weekdays.includes(day)} onChange={(event) => onChange({...value, weekdays: event.target.checked ? [...value.weekdays, day] : value.weekdays.filter((item) => item !== day)})} />
+        {weekdayNames[day]} {(schedule.required_weekdays || []).includes(day) && <span className="required-tag">Required</span>}
+      </label>)}
+    </div>}
+    {schedule.time_window && <p>Suggested time: {schedule.time_window}</p>}
+  </div>;
+}
+
 export function OpportunityDetails({
   item,
   token,
@@ -142,9 +176,7 @@ export function OpportunityDetails({
       setBusy(true);
       setError("");
       await api(`/api/teams/${teamId}/requests`, token, { method: "POST", body: JSON.stringify({date_answers: answers, motivation, question_answer: questionAnswer}) });
-      setMessage(
-        "Request sent. Check My teams for updates; there are no notifications yet.",
-      );
+      setMessage("Request sent. Check Notifications or My teams for the owner's decision.");
       clearPending();
       await load();
       setAction(null);
@@ -237,30 +269,23 @@ export function OpportunityDetails({
       </section>
       {message && <div className="notice success">{message}</div>}
       {error && <div className="notice error">{error}</div>}
-      {user && item.fit && <div className="notice">
-        <strong>{item.fit.band} activity fit</strong> · Guidance, not a guarantee. {item.fit.explanation.join(" · ")}
-        {item.fit.band !== "High" && <> <button className="inline-link" onClick={onProfile}>Improve your match → Edit profile</button></>}
-      </div>}
-      {action && <section className="panel">
+      {user && item.fit && <section className="fit-panel" aria-label="Activity fit">
+        <div>
+          <span className="fit-badge">{item.fit.band} activity fit</span>
+          <p>Guidance based on your profile. It does not include activity dates.</p>
+        </div>
+        <ul className="fit-reasons">{item.fit.explanation.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        {item.fit.band !== "High" && <button className="inline-link" onClick={onProfile}>Improve your match → Edit profile</button>}
+      </section>}
+      {action && <section className="panel participation-panel">
         <h2>{action.kind === "interest" ? "Join the looking pool" : `Request to join ${action.team?.name}`}</h2>
         <p>{scheduleLabel(action.team?.schedule || item.schedule)}</p>
-        {((action.team?.schedule || item.schedule).required_dates || []).length > 0 && <p>Required dates: {(action.team?.schedule || item.schedule).required_dates?.join(", ")}</p>}
-        {(action.team?.schedule || item.schedule).kind !== "undecided" && <>
-          <label>Dates you can attend <small>YYYY-MM-DD, comma separated</small>
-            <input value={answers.dates.join(", ")} onChange={(event) => setAnswers({...answers, dates: event.target.value.split(",").map((value) => value.trim()).filter(Boolean)})} />
-          </label>
-          {(action.team?.schedule || item.schedule).kind === "recurring" && <div>
-            <p>Recurring days you can attend</p>
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => <label key={day} className="check">
-              <input type="checkbox" checked={answers.weekdays.includes(index)} onChange={(event) => setAnswers({...answers, weekdays: event.target.checked ? [...answers.weekdays, index] : answers.weekdays.filter((value) => value !== index)})} />{day}
-            </label>)}
-          </div>}
-        </>}
+        <DateAnswerFields schedule={action.team?.schedule || item.schedule} value={answers} onChange={setAnswers} />
         {action.kind === "request" && <>
           <label>Why would you like to join?<textarea value={motivation} onChange={(event) => setMotivation(event.target.value)} /></label>
           {action.team?.question && <label>{action.team.question}<textarea required value={questionAnswer} onChange={(event) => setQuestionAnswer(event.target.value)} /></label>}
         </>}
-        <div className="row-actions"><button className="button" disabled={busy} onClick={() => action.kind === "interest" ? void interest() : void request(action.team!.id)}>Confirm {action.kind === "interest" ? "looking" : "request"}</button>
+        <div className="row-actions"><button className="button" disabled={busy || (!!action.team?.question && !questionAnswer.trim())} onClick={() => action.kind === "interest" ? void interest() : void request(action.team!.id)}>Confirm {action.kind === "interest" ? "looking" : "request"}</button>
           <button className="button secondary" onClick={() => setAction(null)}>Cancel</button></div>
       </section>}
       {item.official_url && (
@@ -270,15 +295,11 @@ export function OpportunityDetails({
         </p>
       )}
       {participation?.team && (
-        <div className="notice success">
-          You joined {participation.team.name}. You can belong to one team for
-          this activity.{" "}
-          <button
-            className="inline-link"
-            onClick={() => onTeam(participation.team!.id)}
-          >
-            Open your team →
-          </button>
+        <div className="status-card">
+          <div><strong>You are a member of {participation.team.name}</strong>
+            <p>Your team workspace is ready. You can join one team for this activity at a time.</p>
+          </div>
+          <button className="button small" onClick={() => onTeam(participation.team!.id)}>Open your team →</button>
         </div>
       )}
       {!!participation?.requests.length && (
@@ -378,15 +399,17 @@ export function OpportunityDetails({
       <div className="section-heading compact">
         <div>
           <span className="section-kicker">FIND YOUR PEOPLE</span>
-          <h2>{user ? "Teams for you" : "Teams"}</h2>
+          <h2>{participation?.team ? "Your team is ready" : user ? "Find a team" : "Open teams"}</h2>
           <p>
-            {user
-              ? "Recommended teams use your profile, skills, and availability."
-              : "Sign in to see recommendations and join a team."}
+            {participation?.team
+              ? "Open your team to meet members, review updates and coordinate."
+              : user
+                ? "Teams are ranked using your profile and activity-specific date answers."
+                : "Sign in to see team-fit guidance and request to join."}
           </p>
         </div>
       </div>
-      {user && <p className="recommendation-note">Team fit is guidance. Required dates are checked when you request to join.</p>}
+      {user && !participation?.team && <p className="recommendation-note">Team fit is guidance. Confirm required dates before you request to join.</p>}
       {loading && <p>Loading teams...</p>}
       <div className="team-list">
         {(user
@@ -586,11 +609,8 @@ export function TeamDetails({
       {team.members && !team.closed && <div className="panel">
         {team.owner_id === user.id ? <>
           <h2>Manage team</h2>
+          <p>Update plans or manage members below. To leave as owner, transfer ownership to a member or close the team.</p>
           <button className="button secondary small" onClick={() => setEditingSchedule(!editingSchedule)}>Update schedule</button>{" "}
-          <button className="button secondary small" onClick={() => {
-            const id = Number(window.prompt("Enter the ID of an accepted member to become owner"));
-            if (id) void teamAction("transfer", {user_id: id});
-          }}>Transfer ownership</button>{" "}
           <button className="button secondary small" onClick={() => void teamAction("close")}>Close team</button>
           {editingSchedule && <ScheduleChange teamId={teamId} token={token} initial={team.schedule} onSaved={() => {setEditingSchedule(false); void load();}} />}
         </> : <>
@@ -638,48 +658,33 @@ export function TeamDetails({
             )}
           </section>
           {team.owner_id === user.id && (
-            <section className="panel">
+            <section className="panel applicant-panel">
               <span className="section-kicker">YOUR TEAM</span>
               <h2>Join requests</h2>
               {requests.length ? (
                 requests.map((request) => (
-                  <div className="request-row" key={request.id}>
-                    <div>
-                      <strong>{request.user?.display_name}</strong>
-                      <p>
-                        {request.user?.skills.join(", ") ||
-                          "No skills listed"}{" "}
-                        · {request.status}
-                      </p>
-                      {request.match && (
-                        <p>
-                          {request.match.score}% match estimate ·{" "}
-                          {request.match.explanation.join(" · ")}
-                        </p>
-                      )}
-                      <p>{request.user?.bio}</p>
-                      <p>Interests: {request.user?.interests.join(", ")} · Courses: {request.user?.courses.join(", ")} · Experience: {request.user?.experience.join(", ")}</p>
-                      <p>Dates: {request.date_answers?.dates?.join(", ") || "Not confirmed"} · Weekdays: {request.date_answers?.weekdays?.join(", ") || "None"}</p>
-                      <p>Motivation: {request.motivation || "No answer"}</p>
-                      {team.question && <p>{team.question}: {request.question_answer || "No answer"}</p>}
-                      {request.match?.date_status === "not_confirmed" && <p>Applicant must confirm required dates before approval.</p>}
+                  <div className="applicant-card" key={request.id}>
+                    <div className="applicant-heading">
+                      <div><strong>{request.user?.display_name}</strong><span className="count-pill">{request.status}</span></div>
+                      {request.match && <span className="fit-badge">{request.match.score}% team match</span>}
                     </div>
-                    {request.status === "pending" && (
-                      <div className="row-actions">
-                        <button
-                          className="button small"
-                          onClick={() => void decide(request.id, "approve")}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          className="button secondary small"
-                          onClick={() => void decide(request.id, "decline")}
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    )}
+                    <p className="applicant-bio">{request.user?.bio || "Profile introduction not yet added."}</p>
+                    <div className="applicant-facts">
+                      <span><small>Skills</small>{request.user?.skills.join(", ") || "Not listed"}</span>
+                      <span><small>Interests</small>{request.user?.interests.map((name) => categories[name] || name).join(", ") || "Not listed"}</span>
+                      <span><small>Courses</small>{request.user?.courses.join(", ") || "Not listed"}</span>
+                      <span><small>Experience</small>{request.user?.experience.join(", ") || "Not listed"}</span>
+                      <span><small>Dates they can attend</small>{request.date_answers?.dates?.join(", ") || "Not confirmed"}</span>
+                      <span><small>Recurring days</small>{request.date_answers?.weekdays?.map((day) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day]).join(", ") || "Not confirmed"}</span>
+                    </div>
+                    <p><strong>Motivation:</strong> {request.motivation || "No answer"}</p>
+                    {team.question && <p><strong>{team.question}</strong> {request.question_answer || "No answer"}</p>}
+                    {request.match && <div className="factor-report"><strong>Why this score?</strong><ul>{request.match.explanation.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
+                    {request.match?.date_status === "not_confirmed" && <p className="notice">Dates must be confirmed before approval.</p>}
+                    {request.status === "pending" && <div className="row-actions">
+                      <button className="button small" onClick={() => void decide(request.id, "approve")}>Approve</button>
+                      <button className="button secondary small" onClick={() => void decide(request.id, "decline")}>Decline</button>
+                    </div>}
                   </div>
                 ))
               ) : (
@@ -688,21 +693,18 @@ export function TeamDetails({
               <h3 className="subheading">People looking</h3>
               {candidates.length ? (
                 candidates.map((candidate) => (
-                  <div className="candidate" key={candidate.user.id}>
-                    <strong>
-                      {candidate.user.display_name} ·{" "}
-                      {candidate.score}% match
-                    </strong>
-                    <p>{candidate.explanation.join(" · ")}</p>
-                    <p>{candidate.user.bio} · Skills: {candidate.user.skills.join(", ")}</p>
-                    <p>Dates: {candidate.date_answers?.dates?.join(", ") || "Not confirmed"}</p>
-                    <button className="button small" onClick={() => void invite(candidate.user.id)}>Invite</button>{" "}
-                    <button
-                      className="inline-link"
-                      onClick={() => void reportPerson(candidate.user.id)}
-                    >
-                      Report profile
-                    </button>
+                  <div className="candidate applicant-card" key={candidate.user.id}>
+                    <div className="applicant-heading"><strong>{candidate.user.display_name}</strong>
+                      {candidate.user.bio && candidate.user.skills.length ? <span className="fit-badge">{candidate.score}% team match</span> : <span className="count-pill">Profile needs an update</span>}
+                    </div>
+                    <p className="applicant-bio">{candidate.user.bio || "This student has not updated their introduction."}</p>
+                    <div className="applicant-facts">
+                      <span><small>Skills</small>{candidate.user.skills.join(", ") || "Not listed"}</span>
+                      <span><small>Dates</small>{candidate.date_answers?.dates?.join(", ") || "Not confirmed"}</span>
+                    </div>
+                    {candidate.user.bio && <div className="factor-report"><strong>Match factors</strong><ul>{candidate.explanation.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
+                    <div className="row-actions"><button className="button small" onClick={() => void invite(candidate.user.id)}>Invite</button>
+                      <button className="inline-link" onClick={() => void reportPerson(candidate.user.id)}>Report profile</button></div>
                   </div>
                 ))
               ) : (
@@ -937,16 +939,16 @@ export function Dashboard({
         <h2><button className="inline-link" onClick={() => onOpportunity(id)}>{group.title}</button></h2>
         <p>{scheduleLabel(group.schedule)}</p>
         {group.teams.map((team) => <div className="request-row" key={team.id}>
-          <button className="inline-link" onClick={() => onTeam(team.id)}>Member of {team.name} ?</button>
-          <span>{team.member_count}/{team.capacity} members ? {scheduleLabel(team.schedule)}</span>
+          <button className="inline-link" onClick={() => onTeam(team.id)}>Member of {team.name} →</button>
+          <span>{team.member_count}/{team.capacity} members · {scheduleLabel(team.schedule)}</span>
         </div>)}
-        {group.looking && <div className="request-row"><button className="inline-link" onClick={() => onOpportunity(id)}>Looking for a team ? Update dates ?</button></div>}
+        {group.looking && <div className="request-row"><button className="inline-link" onClick={() => onOpportunity(id)}>Looking for a team · Update dates →</button></div>}
         {group.requests.map((request) => <div className="request-row" key={request.id}>
-          <button className="inline-link" onClick={() => request.team_id && onTeam(request.team_id)}>Request to {request.team_name} ?</button>
+          <button className="inline-link" onClick={() => request.team_id && onTeam(request.team_id)}>Request to {request.team_name} →</button>
           <span className="count-pill">{request.status}</span>
         </div>)}
         {group.invitations.map((invite) => <div className="request-row" key={invite.id}>
-          <button className="inline-link" onClick={() => onTeam(invite.team_id)}>Invitation from {invite.team_name} ?</button>
+          <button className="inline-link" onClick={() => onTeam(invite.team_id)}>Invitation from {invite.team_name} →</button>
           <span className="count-pill">{invite.status}</span>
           {invite.status === "pending" && <div className="row-actions">
             <button className="button small" onClick={() => void decideInvite(invite.id, "accept")}>Accept</button>
